@@ -49,6 +49,9 @@ class Element(ABC):
             "element_id": self.id,
             "metadata": self.metadata.to_dict(),
         }
+    
+    def to_markdown():
+        raise NotImplementedError
 
 
 class CheckBox(Element):
@@ -133,11 +136,17 @@ class Text(Element):
 
         self.text = cleaned_text
 
+    def to_markdown(self):
+        return f"![]({self.text})"
+
 
 class FigureCaption(Text):
     """An element for capturing text associated with figure captions."""
 
     category = "FigureCaption"
+
+    def to_markdown(self):
+        return f"![]({self.text})"
 
     pass
 
@@ -148,7 +157,8 @@ class NarrativeText(Text):
 
     category = "NarrativeText"
 
-    pass
+    def to_markdown(self):
+        return f"{self.text}"
 
 
 class ListItem(Text):
@@ -156,7 +166,8 @@ class ListItem(Text):
 
     category = "ListItem"
 
-    pass
+    def to_markdown(self):
+        return f"- {self.text}"
 
 
 class Title(Text):
@@ -164,7 +175,8 @@ class Title(Text):
 
     category = "Title"
 
-    pass
+    def to_markdown(self):
+        return f"# {self.text}"
 
 
 class Address(Text):
@@ -172,7 +184,8 @@ class Address(Text):
 
     category = "Address"
 
-    pass
+    def to_markdown(self):
+        return f"{self.text}"
 
 
 class Image(Text):
@@ -180,7 +193,8 @@ class Image(Text):
 
     category = "Image"
 
-    pass
+    def to_markdown(self):
+        return ""
 
 
 class PageBreak(Text):
@@ -196,6 +210,9 @@ class PageBreak(Text):
         metadata: ElementMetadata = ElementMetadata(),
     ):
         super().__init__(text="<PAGE BREAK>")
+
+    def to_markdown(self):
+        return f"\n\n"
 
 
 TYPE_TO_TEXT_ELEMENT_MAP: Dict[str, Any] = {

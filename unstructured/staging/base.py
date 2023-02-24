@@ -37,13 +37,20 @@ def convert_to_dict(elements: List[Element]) -> List[Dict[str, str]]:
     """Converts a list of elements into a dictionary."""
     return convert_to_isd(elements)
 
+def convert_to_markdown(elements: List[Element]) -> str:
+    """Converts a list of elements into markdown."""
+    markdown = ""
+    for element in elements:
+        markdown += element.to_markdown()
+
+    return markdown
+
 
 def elements_to_json(elements: List[Element], filename: str, indent: int = 4):
     """Saves a list of elements to a JSON file."""
     element_dict = convert_to_dict(elements)
     with open(filename, "w") as f:
         json.dump(element_dict, f, indent=indent)
-
 
 def isd_to_elements(isd: List[Dict[str, Any]]) -> List[Element]:
     """Converts an Initial Structured Data (ISD) dictionary to a list of elements."""
