@@ -1,7 +1,7 @@
 from abc import ABC
 from dataclasses import dataclass
 import hashlib
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Callable, List, Optional, Union
 import pathlib
 
 
@@ -24,10 +24,6 @@ class ElementMetadata:
     def to_dict(self):
         return {key: value for key, value in self.__dict__.items() if value is not None}
 
-    @classmethod
-    def from_dict(cls, input_dict):
-        return cls(**input_dict)
-
 
 class Element(ABC):
     """An element is a section of a page in the document."""
@@ -41,17 +37,6 @@ class Element(ABC):
         self.id: Union[str, NoID] = element_id
         self.coordinates: Optional[List[float]] = coordinates
         self.metadata = metadata
-
-    def to_dict(self) -> dict:
-        return {
-            "type": None,
-            "coordinates": self.coordinates,
-            "element_id": self.id,
-            "metadata": self.metadata.to_dict(),
-        }
-    
-    def to_markdown():
-        raise NotImplementedError
 
 
 class CheckBox(Element):
@@ -75,7 +60,6 @@ class CheckBox(Element):
 
     def to_dict(self) -> dict:
         return {
-            "type": "CheckBox",
             "checked": self.checked,
             "coordinates": self.coordinates,
             "element_id": self.id,
@@ -86,7 +70,7 @@ class CheckBox(Element):
 class Text(Element):
     """Base element for capturing free text from within document."""
 
-    category = "UncategorizedText"
+    category = "Uncategorized"
 
     def __init__(
         self,
@@ -117,8 +101,6 @@ class Text(Element):
 
     def to_dict(self) -> dict:
         return {
-            "element_id": self.id,
-            "coordinates": self.coordinates,
             "text": self.text,
             "type": self.category,
             "metadata": self.metadata.to_dict(),
@@ -136,17 +118,11 @@ class Text(Element):
 
         self.text = cleaned_text
 
-    def to_markdown(self):
-        return f"![]({self.text})"
-
 
 class FigureCaption(Text):
     """An element for capturing text associated with figure captions."""
 
     category = "FigureCaption"
-
-    def to_markdown(self):
-        return f"![]({self.text})"
 
     pass
 
@@ -157,8 +133,7 @@ class NarrativeText(Text):
 
     category = "NarrativeText"
 
-    def to_markdown(self):
-        return f"{self.text}"
+    pass
 
 
 class ListItem(Text):
@@ -166,8 +141,7 @@ class ListItem(Text):
 
     category = "ListItem"
 
-    def to_markdown(self):
-        return f"- {self.text}"
+    pass
 
 
 class Title(Text):
@@ -175,8 +149,7 @@ class Title(Text):
 
     category = "Title"
 
-    def to_markdown(self):
-        return f"# {self.text}"
+    pass
 
 
 class Address(Text):
@@ -184,8 +157,7 @@ class Address(Text):
 
     category = "Address"
 
-    def to_markdown(self):
-        return f"{self.text}"
+    pass
 
 
 class Image(Text):
@@ -193,8 +165,7 @@ class Image(Text):
 
     category = "Image"
 
-    def to_markdown(self):
-        return ""
+    pass
 
 
 class PageBreak(Text):
@@ -202,27 +173,5 @@ class PageBreak(Text):
 
     category = "PageBreak"
 
-    def __init__(
-        self,
-        text: Optional[str] = None,
-        element_id: Union[str, NoID] = NoID(),
-        coordinates: Optional[List[float]] = None,
-        metadata: ElementMetadata = ElementMetadata(),
-    ):
+    def __init__(self):
         super().__init__(text="<PAGE BREAK>")
-
-    def to_markdown(self):
-        return f"\n\n"
-
-
-TYPE_TO_TEXT_ELEMENT_MAP: Dict[str, Any] = {
-    "UncategorizedText": Text,
-    "FigureCaption": FigureCaption,
-    "NarrativeText": NarrativeText,
-    "ListItem": ListItem,
-    "BulletedText": ListItem,
-    "Title": Title,
-    "Address": Address,
-    "Image": Image,
-    "PageBreak": PageBreak,
-}
