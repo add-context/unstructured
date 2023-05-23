@@ -7,7 +7,7 @@ Quick Start
 Use the following instructions to get up and running with ``unstructured`` and test your
 installation.
 
-* Install the Python SDK with ``"pip install unstructured[local-inference]"``
+* Install the Python SDK with ``pip install "unstructured[local-inference]"``
 	* If you do not need to process PDFs or images, you can run ``pip install unstructured``
 
 * Install the following system dependencies if they are not already available on your system. Depending on what document types you're parsing, you may not need all of these.
@@ -15,9 +15,10 @@ installation.
 	* ``poppler-utils`` (images and PDFs)
 	* ``tesseract-ocr`` (images and PDFs)
 	* ``libreoffice`` (MS Office docs)
+	* ``pandocs`` (EPUBs, RTFs and Open Office docs)
 
 * If you are parsing PDFs, run the following to install the ``detectron2`` model, which ``unstructured`` uses for layout detection:
-	* ``pip install "detectron2@git+https://github.com/facebookresearch/detectron2.git@v0.6#egg=detectron2"``
+	* ``pip install "detectron2@git+https://github.com/facebookresearch/detectron2.git@e2ce8dc#egg=detectron2"``
 
 At this point, you should be able to run the following code:
 
@@ -138,7 +139,7 @@ If you are on Windows using ``conda``, run:
 		$ conda install -c conda-forge libmagic
 
 ======================
-XML/HTML Depenedencies
+XML/HTML Dependencies
 ======================
 
 For XML and HTML parsing, you'll need ``libxml2`` and ``libxlst`` installed. On a Mac, you can do

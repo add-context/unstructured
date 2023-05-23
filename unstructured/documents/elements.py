@@ -1,8 +1,18 @@
+from __future__ import annotations
+
+import datetime
+import hashlib
+import os
+import pathlib
 from abc import ABC
 from dataclasses import dataclass
+<<<<<<< HEAD
 import hashlib
 from typing import Callable, List, Optional, Union
 import pathlib
+=======
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+>>>>>>> a1fed6d4c69150643c335327a8d01897b73d32f0
 
 
 class NoID(ABC):
@@ -14,16 +24,59 @@ class NoID(ABC):
 @dataclass
 class ElementMetadata:
     filename: Optional[str] = None
+    file_directory: Optional[str] = None
+    date: Optional[str] = None
+    filetype: Optional[str] = None
+
+    # Page numbers currenlty supported for PDF, HTML and PPT documents
     page_number: Optional[int] = None
+
+    # Page name. The sheet name in XLXS documents.
+    page_name: Optional[str] = None
+
+    # Webpage specific metadata fields
     url: Optional[str] = None
+
+    # E-mail specific metadata fields
+    sent_from: Optional[List[str]] = None
+    sent_to: Optional[List[str]] = None
+    subject: Optional[str] = None
+
+    # Text format metadata fields
+    text_as_html: Optional[str] = None
 
     def __post_init__(self):
         if isinstance(self.filename, pathlib.Path):
             self.filename = str(self.filename)
 
+        if self.filename is not None:
+            file_directory, filename = os.path.split(self.filename)
+            self.file_directory = file_directory or None
+            self.filename = filename
+
     def to_dict(self):
         return {key: value for key, value in self.__dict__.items() if value is not None}
 
+<<<<<<< HEAD
+=======
+    @classmethod
+    def from_dict(cls, input_dict):
+        return cls(**input_dict)
+
+    def merge(self, other: ElementMetadata):
+        for k in self.__dict__:
+            if getattr(self, k) is None:
+                setattr(self, k, getattr(other, k))
+        return self
+
+    def get_date(self) -> Optional[datetime.datetime]:
+        """Converts the date field to a datetime object."""
+        dt = None
+        if self.date is not None:
+            dt = datetime.datetime.fromisoformat(self.date)
+        return dt
+
+>>>>>>> a1fed6d4c69150643c335327a8d01897b73d32f0
 
 class Element(ABC):
     """An element is a section of a page in the document."""
@@ -31,11 +84,11 @@ class Element(ABC):
     def __init__(
         self,
         element_id: Union[str, NoID] = NoID(),
-        coordinates: Optional[List[float]] = None,
+        coordinates: Optional[Tuple[Tuple[float, float], ...]] = None,
         metadata: ElementMetadata = ElementMetadata(),
     ):
         self.id: Union[str, NoID] = element_id
-        self.coordinates: Optional[List[float]] = coordinates
+        self.coordinates: Optional[Tuple[Tuple[float, float], ...]] = coordinates
         self.metadata = metadata
 
 
@@ -46,12 +99,12 @@ class CheckBox(Element):
     def __init__(
         self,
         element_id: Union[str, NoID] = NoID(),
-        coordinates: Optional[List[float]] = None,
+        coordinates: Optional[Tuple[Tuple[float, float], ...]] = None,
         checked: bool = False,
         metadata: ElementMetadata = ElementMetadata(),
     ):
         self.id: Union[str, NoID] = element_id
-        self.coordinates: Optional[List[float]] = coordinates
+        self.coordinates: Optional[Tuple[Tuple[float, float], ...]] = coordinates
         self.checked: bool = checked
         self.metadata = metadata
 
@@ -76,7 +129,7 @@ class Text(Element):
         self,
         text: str,
         element_id: Union[str, NoID] = NoID(),
-        coordinates: Optional[List[float]] = None,
+        coordinates: Optional[Tuple[Tuple[float, float], ...]] = None,
         metadata: ElementMetadata = ElementMetadata(),
     ):
         self.text: str = text
@@ -96,7 +149,7 @@ class Text(Element):
                 (self.text == other.text),
                 (self.coordinates == other.coordinates),
                 (self.category == other.category),
-            ]
+            ],
         )
 
     def to_dict(self) -> dict:
@@ -175,3 +228,30 @@ class PageBreak(Text):
 
     def __init__(self):
         super().__init__(text="<PAGE BREAK>")
+<<<<<<< HEAD
+=======
+
+
+class Table(Text):
+    """An element for capturing tables."""
+
+    category = "Table"
+
+    pass
+
+
+TYPE_TO_TEXT_ELEMENT_MAP: Dict[str, Any] = {
+    "UncategorizedText": Text,
+    "FigureCaption": FigureCaption,
+    "Figure": FigureCaption,
+    "Text": NarrativeText,
+    "NarrativeText": NarrativeText,
+    "ListItem": ListItem,
+    "BulletedText": ListItem,
+    "Title": Title,
+    "Address": Address,
+    "Image": Image,
+    "PageBreak": PageBreak,
+    "Table": Table,
+}
+>>>>>>> a1fed6d4c69150643c335327a8d01897b73d32f0

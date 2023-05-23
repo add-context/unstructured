@@ -13,6 +13,8 @@
   <a href="https://github.com/Unstructured-IO/unstructured/blob/main/CODE_OF_CONDUCT.md">![code_of_conduct.md](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg) </a>
   <a href="https://GitHub.com/unstructured-io/unstructured/releases">![https://GitHub.com/unstructured-io/unstructured.js/releases](https://img.shields.io/github/release/unstructured-io/unstructured)</a>
   <a href="https://pypi.python.org/pypi/unstructured/">![https://github.com/Naereen/badges/](https://badgen.net/badge/Open%20Source%20%3F/Yes%21/blue?icon=github)</a>
+  [![Downloads](https://static.pepy.tech/badge/unstructured)](https://pepy.tech/project/unstructured)
+  [![Downloads](https://static.pepy.tech/badge/unstructured/month)](https://pepy.tech/project/unstructured)
 
 </div>
 
@@ -26,17 +28,17 @@
     <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" />
   </a>
 </div>
-
 <h2 align="center">
   <p>Announcement!!!</p>
 </h2>
 <div align="center">
-  <p>Unstructured wants to make it easier to connect to your data…and we need your help! We’re excited to announce a <a href="Competition.md">competition</a> focused on improving Unstructured's ability to seamlessly process data from the sources you care about most.</p>
-	
-  <p>The competition starts now and continues through March 10...and most importantly, we're offering cash prizes! Please join our <a
+  <p>We're excited to announce the public release of the unstructured.io hosted API! Now you can leverage Unstructured with a simple API call to render clean text in JSON format out of your images, documents, powerpoints, and more.</p>
+
+<p>Checkout the <a href="https://github.com/Unstructured-IO/unstructured-api#--">readme</a> here to get started making API calls. You’ll also find instructions there about how to host your own version of the API. Unstructured data just got easier!
+We'd love to hear your feedback, let us know how it goes in our <a
   href="https://join.slack.com/t/unstructuredw-kbe4326/shared_invite/zt-1nlh1ot5d-dfY7zCRlhFboZrIWLA4Qgw">
-   community Slack</a> to participate and follow along</p>
-	<p><img src="money.gif"></p>
+   community slack</a>. And stay tuned for improvements to both quality and performance over the coming months!
+<p><img src="easy.gif"></p></p>
 </div>
 
 <h3 align="center">
@@ -56,16 +58,12 @@ about. Bricks in the library fall into three categories:
 - :performing_arts: ***Staging bricks*** that format data for downstream tasks, such as ML inference
   and data labeling.
 
-<div align="center">
-<img src="https://user-images.githubusercontent.com/38184042/205945013-99670127-0bf3-4851-b4ac-0bc23e357476.gif" title="unstructured in action!">
-</div>
-
 <br></br>
 
 ## :eight_pointed_black_star: Quick Start
 
 Use the following instructions to get up and running with `unstructured` and test your
-installation.
+installation. NOTE: We do not currently support python 3.11, please use an older version.
 
 - Install the Python SDK with `pip install "unstructured[local-inference]"`
 		- If you do not need to process PDFs or images, you can run `pip install unstructured`
@@ -77,7 +75,8 @@ installation.
     - `libreoffice` (MS Office docs)
 - If you are parsing PDFs, run the following to install the `detectron2` model, which
   `unstructured` uses for layout detection:
-    - `pip install "detectron2@git+https://github.com/facebookresearch/detectron2.git@v0.6#egg=detectron2"`
+    - `pip install tensorboard>=2.12.2`
+    - `pip install "detectron2@git+https://github.com/facebookresearch/detectron2.git@e2ce8dc#egg=detectron2"`
 
 At this point, you should be able to run the following code:
 
@@ -85,6 +84,7 @@ At this point, you should be able to run the following code:
 from unstructured.partition.auto import partition
 
 elements = partition(filename="example-docs/fake-email.eml")
+print("\n\n".join([str(el) for el in elements]))
 ```
 
 And if you installed with `local-inference`, you should be able to run this as well:
@@ -93,6 +93,55 @@ And if you installed with `local-inference`, you should be able to run this as w
 from unstructured.partition.auto import partition
 
 elements = partition("example-docs/layout-parser-paper.pdf")
+print("\n\n".join([str(el) for el in elements]))
+```
+
+## :dizzy: Instructions for using the docker image
+
+The following instructions are intended to help you get up and running using Docker to interact with `unstructured`.
+See [here](https://docs.docker.com/get-docker/) if you don't already have docker installed on your machine.
+
+NOTE: we build multi-platform images to support both x86_64 and Apple silicon hardware. `docker pull` should download the corresponding image for your architecture, but you can specify with `--platform` (e.g. `--platform linux/amd64`) if needed.
+
+We build Docker images for all pushes to `main`. We tag each image with the corresponding short commit hash (e.g. `fbc7a69`) and the application version (e.g. `0.5.5-dev1`). We also tag the most recent image with `latest`. To leverage this, `docker pull` from our image repository.
+
+```bash
+docker pull quay.io/unstructured-io/unstructured:latest
+```
+
+Once pulled, you can create a container from this image and shell to it.
+
+```bash
+# create the container
+docker run -dt --name unstructured quay.io/unstructured-io/unstructured:latest
+
+# this will drop you into a bash shell where the Docker image is running
+docker exec -it unstructured bash
+```
+
+You can also build your own Docker image.
+
+If you only plan on parsing one type of data you can speed up building the image by commenting out some
+of the packages/requirements necessary for other data types. See Dockerfile to know which lines are necessary
+for your use case.
+
+```bash
+make docker-build
+
+# this will drop you into a bash shell where the Docker image is running
+make docker-start-bash
+```
+
+Once in the running container, you can try things out directly in Python interpreter's interactive mode.
+```bash
+# this will drop you into a python console so you can run the below partition functions
+python3
+
+>>> from unstructured.partition.pdf import partition_pdf
+>>> elements = partition_pdf(filename="example-docs/layout-parser-paper-fast.pdf")
+
+>>> from unstructured.partition.text import partition_text
+>>> elements = partition_text(filename="example-docs/fake-text.txt")
 ```
 
 
@@ -119,12 +168,23 @@ locally if you are planning to contribute to the project.
   * For processing image files, `tesseract` is required. See [here](https://tesseract-ocr.github.io/tessdoc/Installation.html) for installation instructions.
   * For processing PDF files, `tesseract` and `poppler` are required. The [pdf2image docs](https://pdf2image.readthedocs.io/en/latest/installation.html) have instructions on installing `poppler` across various platforms.
 
+Additionally, if you're planning to contribute to `unstructured`, we provide you an optional `pre-commit` configuration
+file to ensure your code matches the formatting and linting standards used in `unstructured`.
+If you'd prefer not having code changes auto-tidied before every commit, you can use  `make check` to see
+whether any linting or formatting changes should be applied, and `make tidy` to apply them.
+
+If using the optional `pre-commit`, you'll just need to install the hooks with `pre-commit install` since the
+`pre-commit` package is installed as part of `make install` mentioned above. Finally, if you decided to use `pre-commit`
+you can also uninstall the hooks with `pre-commit uninstall`.
+
 ## :clap: Quick Tour
 
 You can run this [Colab notebook](https://colab.research.google.com/drive/1U8VCjY2-x8c6y5TYMbSFtQGlQVFHCVIW) to run the examples below.
 
 The following examples show how to get started with the `unstructured` library.
-You can parse **TXT**, **HTML**, **PDF**, **EML**, **DOC**, **DOCX**, **PPT**, **PPTX**, **JPG**,
+
+You can parse **TXT**, **HTML**, **XML**, **PDF**, **EML**, **MSG**, **RTF**, **EPUB**, **DOC**, **DOCX**,
+**XLSX**, **CSV**, **ODT**, **PPT**, **PPTX**, **JPG**,
 and **PNG** documents with one line of code!
 <br></br>
 See our [documentation page](https://unstructured-io.github.io/unstructured) for a full description
@@ -139,7 +199,7 @@ If you are using the `partition` brick, you may need to install additional param
 instructions outlined [here](https://unstructured-io.github.io/unstructured/installing.html#filetype-detection)
 `partition` will always apply the default arguments. If you need
 advanced features, use a document-specific brick. The `partition` brick currently works for
-`.txt`, `.doc`, `.docx`, `.ppt`, `.pptx`, `.jpg`, `.png`, `.eml`, `.html`, and `.pdf` documents.
+`.txt`, `.doc`, `.docx`, `.ppt`, `.pptx`, `.xlsx`, `.jpg`, `.png`, `.eml`, `.msg`, `.html`, and `.pdf` documents.
 
 ```python
 from unstructured.partition.auto import partition
@@ -228,7 +288,7 @@ The output will look the same as the example from the document parsing section a
 ### E-mail Parsing
 
 The `partition_email` function within `unstructured` is helpful for parsing `.eml` files. Common
-e-mail clients such as Microsoft Outlook and Gmail support exproting e-mails as `.eml` files.
+e-mail clients such as Microsoft Outlook and Gmail support exporting e-mails as `.eml` files.
 `partition_email` accepts filenames, file-like object, and raw text as input. The following
 three snippets for parsing `.eml` files are equivalent:
 

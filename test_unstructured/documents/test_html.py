@@ -1,22 +1,30 @@
 import os
+import pathlib
 
-from lxml import etree
 import pytest
+from lxml import etree
 
+from unstructured.documents import html
 from unstructured.documents.base import Page
-from unstructured.documents.elements import Address, ListItem, NarrativeText, Text, Title
+from unstructured.documents.elements import (
+    Address,
+    ListItem,
+    NarrativeText,
+    Text,
+    Title,
+)
 from unstructured.documents.html import (
+    HEADING_TAGS,
     LIST_ITEM_TAGS,
+    TABLE_TAGS,
+    TEXT_TAGS,
     HTMLDocument,
     HTMLNarrativeText,
     HTMLTitle,
-    TEXT_TAGS,
-    TABLE_TAGS,
-    HEADING_TAGS,
     TagsMixin,
 )
-import unstructured.documents.html as html
 
+DIRECTORY = pathlib.Path(__file__).parent.resolve()
 
 TAGS = (
     "<a><abbr><acronym><address><applet><area><article><aside><audio><b><base><basefont><bdi>"
@@ -36,19 +44,19 @@ INCLUDED_TAGS = TEXT_TAGS + HEADING_TAGS + LIST_ITEM_TAGS + ["div"]
 EXCLUDED_TAGS = "tag", [tag for tag in TAGS if tag not in INCLUDED_TAGS]
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_doc():
     table_element = HTMLTitle(
         "I'm a title in a table.",
         tag="p",
         ancestortags=("table", "tbody", "tr", "td"),
     )
-    narrative = HTMLNarrativeText("I'm some narrative text", tag="p", ancestortags=tuple())
+    narrative = HTMLNarrativeText("I'm some narrative text", tag="p", ancestortags=())
     page1 = Page(0)
     page1.elements = [table_element, narrative]
-    header = HTMLTitle("I'm a header", tag="header", ancestortags=tuple())
-    body = HTMLNarrativeText("Body text", tag="p", ancestortags=tuple())
-    footer = HTMLTitle("I'm a footer", tag="footer", ancestortags=tuple())
+    header = HTMLTitle("I'm a header", tag="header", ancestortags=())
+    body = HTMLNarrativeText("Body text", tag="p", ancestortags=())
+    footer = HTMLTitle("I'm a footer", tag="footer", ancestortags=())
     page2 = Page(1)
     page2.elements = [header, body, footer]
     doc = HTMLDocument.from_pages([page1, page2])
@@ -115,7 +123,7 @@ def test_read_without_skipping_table(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "doc, expected",
+    ("doc", "expected"),
     [
         (
             "<p>Hi there <span>my name is</span> <b><i>Matt</i></i></p>",
@@ -309,7 +317,8 @@ def test_read_html_doc(tmpdir, monkeypatch):
         f.write(doc)
 
     html_document = HTMLDocument.from_file(filename=filename).doc_after_cleaners(
-        skip_headers_and_footers=True, skip_table_text=True
+        skip_headers_and_footers=True,
+        skip_table_text=True,
     )
     print("original pages: ", HTMLDocument.from_file(filename=filename).pages)
     print("filtered pages: ", html_document.pages)
@@ -334,7 +343,7 @@ def test_read_html_doc(tmpdir, monkeypatch):
     ]
 
     pages = html_document.pages
-    assert all([isinstance(page, Page) for page in pages])
+    assert all(isinstance(page, Page) for page in pages)
 
 
 def test_find_main():
@@ -626,3 +635,21 @@ def test_joins_tag_text_correctly():
     doc = HTMLDocument.from_string(raw_html)
     el = doc.elements[0]
     assert el.text == "Hello again peet magical"
+
+
+def test_sample_doc_with_scripts():
+    filename = os.path.join(DIRECTORY, "..", "..", "example-docs", "example-with-scripts.html")
+    doc = HTMLDocument.from_file(filename=filename)
+    assert all("function (" not in element.text for element in doc.elements)
+
+
+def test_sample_doc_with_emoji():
+    raw_html = """
+    <html charset="unicode">
+        <p>Hello again 😀</p>
+    </html>
+    """
+    doc = HTMLDocument.from_string(raw_html)
+    # NOTE(robinson) - unclear why right now, but the output is the emoji on the test runners
+    # and the byte string representation when running locally on mac
+    assert doc.elements[0].text in ["Hello again ð\x9f\x98\x80", "Hello again 😀"]

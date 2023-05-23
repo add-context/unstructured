@@ -1,18 +1,79 @@
 Bricks
 ======
 
-The ``unstructured`` library provides bricks to make it quick and
-easy to parse documents and create new pre-processing pipelines. The following documents
-bricks currently available in the library.
+The goal of this page is to introduce you to the concept of bricks.
+Bricks are functions that live in ``unstructured`` and are the primary public API for the library.
+There are three types of bricks in ``unstructured``, corresponding to the different stages of document pre-processing: partitioning, cleaning, and staging.
+After reading this section, you should understand the following:
+
+* How to extract content from a document using partitioning bricks.
+* How to remove unwanted content from document elements using cleaning bricks.
+* How to prepare data for downstream use cases using staging bricks
+
 
 
 ############
 Partitioning
 ############
 
-The partitioning bricks in ``unstructured`` differentiate between different sections
-of text in a document. For example, the partitioning bricks can help distinguish between
-titles, narrative text, and tables.
+
+Partitioning bricks in ``unstructured`` allow users to extract structured content from a raw unstructured document.
+These functions break a document down into elements such as ``Title``, ``NarrativeText``, and ``ListItem``,
+enabling users to decide what content they'd like to keep for their particular application.
+If you're training a summarization model, for example, you may only be interested in ``NarrativeText``.
+
+
+The easiest way to partition documents in unstructured is to use the ``partition`` brick.
+If you call the ``partition`` brick, ``unstructured`` will use ``libmagic`` to automatically determine the file type and invoke the appropriate partition function.
+In cases where ``libmagic`` is not available, filetype detection will fall back to using the file extension.
+
+As shown in the examples below, the ``partition`` function accepts both filenames and file-like objects as input.
+``partition`` also has some optional kwargs.
+For example, if you set ``include_page_breaks=True``, the output will include ``PageBreak`` elements if the filetype supports it.
+Additionally you can bypass the filetype detection logic with the optional  ``content_type`` argument which may be specified with either the ``filename`` or file-like object, ``file``.
+You can find a full listing of optional kwargs in the documentation below.
+
+.. code:: python
+
+  from unstructured.partition.auto import partition
+
+
+  filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "layout-parser-paper-fast.pdf")
+  elements = partition(filename=filename, content_type="application/pdf")
+  print("\n\n".join([str(el) for el in elements][:10]))
+
+
+.. code:: python
+
+  from unstructured.partition.auto import partition
+
+
+  filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "layout-parser-paper-fast.pdf")
+  with open(filename, "rb") as f:
+    elements = partition(file=f, include_page_breaks=True)
+  print("\n\n".join([str(el) for el in elements][5:15]))
+
+
+The ``unstructured`` library also includes partitioning bricks targeted at specific document types.
+The ``partition`` brick uses these document-specific partitioning bricks under the hood.
+There are a few reasons you may want to use a document-specific partitioning brick instead of ``partition``:
+
+* If you already know the document type, filetype detection is unnecessary. Using the document-specific brick directly, or passing in the ``content_type`` will make your program run faster.
+* Fewer dependencies. You don't need to install ``libmagic`` for filetype detection if you're only using document-specific bricks.
+* Additional features. The API for partition is the least common denominator for all document types. Certain document-specific brick include extra features that you may want to take advantage of. For example, ``partition_html`` allows you to pass in a URL so you don't have to store the ``.html`` file locally. See the documentation below learn about the options available in each partitioning brick.
+
+
+Below we see an example of how to partition a document directly with the URL using the partition_html function.
+
+.. code:: python
+
+  from unstructured.partition.html import partition_html
+
+  url = "https://www.cnn.com/2023/01/30/sport/empire-state-building-green-philadelphia-eagles-spt-intl/index.html"
+  elements = partition_html(url=url)
+  print("\n\n".join([str(el) for el in elements]))
+
+
 
 ``partition``
 --------------
@@ -20,12 +81,14 @@ titles, narrative text, and tables.
 The ``partition`` brick is the simplest way to partition a document in ``unstructured``.
 If you call the ``partition`` function, ``unstructured`` will attempt to detect the
 file type and route it to the appropriate partitioning brick. All partitioning bricks
-called within ``partition`` are called using the defualt kwargs. Use the document-type
+called within ``partition`` are called using the default kwargs. Use the document-type
 specific bricks if you need to apply non-default settings.
-``partition`` currently supports ``.docx``, ``.doc``, ``.pptx``, ``.ppt``, ``.eml``, ``.html``, ``.pdf``,
+``partition`` currently supports ``.docx``, ``.doc``, ``.odt``, ``.pptx``, ``.ppt``, ``.xlsx``, ``.csv``, ``.eml``, ``.msg``, ``.rtf``, ``.epub``, ``.html``, ``.xml``, ``.pdf``,
 ``.png``, ``.jpg``, and ``.txt`` files.
 If you set the ``include_page_breaks`` kwarg to ``True``, the output will include page breaks. This is only supported for ``.pptx``, ``.html``, ``.pdf``,
 ``.png``, and ``.jpg``.
+The ``strategy`` kwarg controls the strategy for partitioning documents. Generally available strategies are `"fast"` for
+faster processing and `"hi_res"` for more accurate processing.
 
 
 .. code:: python
@@ -53,11 +116,96 @@ If you set the ``include_page_breaks`` kwarg to ``True``, the output will includ
   elements = partition(filename="example-docs/layout-parser-paper-fast.pdf")
 
 
+The ``partition`` function also accepts a ``url`` kwarg for remotely hosted documents. If you want
+to force ``partition`` to treat the document as a particular MIME type, use the ``content_type``
+kwarg in conjunction with ``url``. Otherwise, ``partition`` will use the information from
+the ``Content-Type`` header in the HTTP response. The ``ssl_verify`` kwarg controls whether
+or not SSL verification is enabled for the HTTP request. By default it is on. Use ``ssl_verify=False``
+to disable SSL verification in the request.
+
+
+.. code:: python
+
+  from unstructured.partition.auto import partition
+
+  url = "https://raw.githubusercontent.com/Unstructured-IO/unstructured/main/LICENSE.md"
+  elements = partition(url=url)
+  elements = partition(url=url, content_type="text/markdown")
+
+
+``partition_via_api``
+---------------------
+
+``partition_via_api`` allows users to partition documents using the hosted Unstructured API.
+The API partitions documents using the automatic ``partition`` function. Currently, the API
+supports all filetypes except for RTF and EPUBs.
+To use another URL for the API use the ``api_url`` kwarg. This is helpful if you're hosting
+the API yourself or running it locally through a container. You can pass in your API key
+using the ``api_key`` kwarg. You can use the ``content_type`` kwarg to pass in the MIME
+type for the file. If you do not explicitly pass it, the MIME type will be inferred.
+
+See `here <https://api.unstructured.io/general/docs>`_ for the hosted API swagger documentation
+and `here <https://github.com/Unstructured-IO/unstructured-api#dizzy-instructions-for-using-the-docker-image>`_ for
+documentation on how to run the API as a container locally.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.api import partition_via_api
+
+  filename = "example-docs/fake-email.eml"
+
+  elements = partition_via_api(filename=filename, api_key="MY_API_KEY", content_type="message/rfc822")
+
+  with open(filename, "rb") as f:
+    elements = partition_via_api(file=f, file_filename=filename, api_key="MY_API_KEY")
+
+
+``partition_multiple_via_api``
+------------------------------
+
+``partition_multiple_via_api`` is similar to ``partition_via_api``, but allows you to partition
+multiple documents in a single REST API call. The result has the type ``List[List[Element]]``,
+for example:
+
+.. code:: python
+
+  [
+    [NarrativeText("Narrative!"), Title("Title!")],
+    [NarrativeText("Narrative!"), Title("Title!")]
+  ]
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.api import partition_multiple_via_api
+
+  filenames = ["example-docs/fake-email.eml", "example-docs/fake.docx"]
+
+  documents = partition_multiple_via_api(filenames=filenames)
+
+
+.. code:: python
+
+  from contextlib import ExitStack
+
+  from unstructured.partition.api import partition_multiple_via_api
+
+  filenames = ["example-docs/fake-email.eml", "example-docs/fake.docx"]
+  files = [open(filename, "rb") for filename in filenames]
+
+  with ExitStack() as stack:
+      files = [stack.enter_context(open(filename, "rb")) for filename in filenames]
+      documents = partition_multiple_via_api(files=files, file_filenames=filenames)
+
+
 ``partition_docx``
 ------------------
 
 The ``partition_docx`` partitioning brick pre-processes Microsoft Word documents
-saved in the ``.docx`` format. This staging brick uses a combination of the styling
+saved in the ``.docx`` format. This partition brick uses a combination of the styling
 information in the document and the structure of the text to determine the type
 of a text element. The ``partition_docx`` can take a filename or file-like object
 as input, as shown in the two examples below.
@@ -86,7 +234,7 @@ Examples:
 ------------------
 
 The ``partition_doc`` partitioning brick pre-processes Microsoft Word documents
-saved in the ``.doc`` format. This staging brick uses a combination of the styling
+saved in the ``.doc`` format. This partition brick uses a combination of the styling
 information in the document and the structure of the text to determine the type
 of a text element. The ``partition_doc`` can take a filename or file-like object
 as input.
@@ -103,11 +251,62 @@ Examples:
   elements = partition_doc(filename="example-docs/fake.doc")
 
 
+``partition_xlsx``
+------------------
+
+The ``partition_xlsx`` function pre-processes Microsoft Excel documents. Each
+sheet in the Excel file will be stored as a ``Table`` object. The plain text
+of the sheet will be the ``text`` attribute of the ``Table``. The ``text_as_html``
+attribute in the element metadata will contain an HTML representation of the table.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.xlsx import partition_xlsx
+
+  elements = partition_xlsx(filename="example-docs/stanley-cups.xlsx")
+  print(elements[0].metadata.text_as_html)
+
+
+``partition_csv``
+------------------
+
+The ``partition_csv`` function pre-processes CSV files. The output is a single
+``Table`` element. The ``text_as_html`` attribute in the element metadata will
+contain an HTML representation of the table.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.csv import partition_csv
+
+  elements = partition_csv(filename="example-docs/stanley-cups.csv")
+  print(elements[0].metadata.text_as_html)
+
+
+``partition_odt``
+------------------
+
+The ``partition_odt`` partitioning brick pre-processes Open Office documents
+saved in the ``.odt`` format. The function first converts the document
+to ``.docx`` using ``pandoc`` and then processes it using ``partition_docx``.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.odt import partition_odt
+
+  elements = partition_odt(filename="example-docs/fake.odt")
+
+
 ``partition_pptx``
 ---------------------
 
 The ``partition_pptx`` partitioning brick pre-processes Microsoft PowerPoint documents
-saved in the ``.pptx`` format. This staging brick uses a combination of the styling
+saved in the ``.pptx`` format. This partition brick uses a combination of the styling
 information in the document and the structure of the text to determine the type
 of a text element. The ``partition_pptx`` can take a filename or file-like object
 as input, as shown in the two examples below.
@@ -128,7 +327,7 @@ Examples:
 ---------------------
 
 The ``partition_ppt`` partitioning brick pre-processes Microsoft PowerPoint documents
-saved in the ``.ppt`` format. This staging brick uses a combination of the styling
+saved in the ``.ppt`` format. This partition brick uses a combination of the styling
 information in the document and the structure of the text to determine the type
 of a text element. The ``partition_ppt`` can take a filename or file-like object.
 ``partition_ppt`` uses ``libreoffice`` to convert the file to ``.pptx`` and then
@@ -148,9 +347,10 @@ Examples:
 
 The ``partition_html`` function partitions an HTML document and returns a list
 of document ``Element`` objects. ``partition_html`` can take a filename, file-like
-object, or string as input. The three examples below all produce the same output.
+object, string, or url as input.
 
-Examples:
+The following three invocations of partition_html() are essentially equivalent:
+
 
 .. code:: python
 
@@ -166,6 +366,49 @@ Examples:
   elements = partition_html(text=text)
 
 
+
+The following illustrates fetching a url and partitioning the response content.
+The ``ssl_verify`` kwarg controls whether
+or not SSL verification is enabled for the HTTP request. By default it is on. Use ``ssl_verify=False``
+to disable SSL verification in the request.
+
+.. code:: python
+
+  from unstructured.partition.html import partition_html
+
+  elements = partition_html(url="https://python.org/")
+
+  # you can also provide custom headers:
+
+  elements = partition_html(url="https://python.org/",
+                            headers={"User-Agent": "YourScriptName/1.0 ..."})
+
+  # and turn off SSL verification
+
+  elements = partition_html(url="https://python.org/", ssl_verify=False)
+
+
+``partition_xml``
+-----------------
+
+The ``partition_xml`` function processes XML documents.
+If ``xml_keep_tags=False``, the function only returns the text attributes from the tags.
+You can use ``xml_path`` in conjuntion with ``xml_keep_tags=False`` to restrict the text
+extraction to specific tags.
+If ``xml_keep_tags=True``, the function returns tag information in addition to tag text.
+``xml_keep_tags`` is ``False`` be default.
+
+
+.. code:: python
+
+  from unstructured.partition.xml import partition_xml
+
+  elements = partition_xml(filename="example-docs/factbook.xml", xml_keep_tags=True)
+
+  elements = partition_xml(filename="example-docs/factbook.xml", xml_keep_tags=False)
+
+
+
 ``partition_pdf``
 ---------------------
 
@@ -176,6 +419,11 @@ If you set the URL, ``partition_pdf`` will make a call to a remote inference ser
 ``partition_pdf`` also includes a ``token`` function that allows you to pass in an authentication
 token for a remote API call.
 
+You can also specify what languages to use for OCR with the ``ocr_languages`` kwarg. For example,
+use ``ocr_languages="eng+deu"`` to use the English and German language packs. See the
+`Tesseract documentation <https://github.com/tesseract-ocr/tessdata>`_ for a full list of languages and
+install instructions. OCR is only applied if the text is not already available in the PDF document.
+
 Examples:
 
 .. code:: python
@@ -185,6 +433,51 @@ Examples:
   # Returns a List[Element] present in the pages of the parsed pdf document
   elements = partition_pdf("example-docs/layout-parser-paper-fast.pdf")
 
+  # Applies the English and Swedish language pack for ocr. OCR is only applied
+  # if the text is not available in the PDF.
+  elements = partition_pdf("example-docs/layout-parser-paper-fast.pdf", ocr_languages="eng+swe")
+
+
+The ``strategy`` kwarg controls the method that will be used to process the PDF.
+The available strategies for PDFs are ``"auto"``, ``"hi_res"``, ``"ocr_only"``, and ``"fast"``.
+
+The ``"auto"`` strategy will choose the partitioning strategy based on document characteristics and the function kwargs.
+If ``infer_table_structure`` is passed, the strategy will be ``"hi_res"`` because that is the only strategy that
+currently extracts tables for PDFs. Otherwise, ``"auto"`` will choose ``"fast"`` if the PDF text is extractable and
+``"ocr_only"`` otherwise. ``"auto"`` is the default strategy.
+
+The ``"hi_res"`` strategy will identify the layout of the document using ``detectron2``. The advantage of `"hi_res"` is that
+it uses the document layout to gain additional information about document elements. We recommend using this strategy
+if your use case is highly sensitive to correct classifications for document elements. If ``detectron2`` is not available,
+the ``"hi_res"`` strategy will fall back to the ``"ocr_only"`` strategy.
+
+The ``"ocr_only"`` strategy runs the document through Tesseract for OCR and then runs the raw text through ``partition_text``.
+Currently, ``"hi_res"`` has difficulty ordering elements for documents with multiple columns. If you have a document with
+multiple columns that does not have extractable text, we recommend using the ``"ocr_only"`` strategy. ``"ocr_only"`` falls
+back to ``"fast"`` if Tesseract is not available and the document has extractable text.
+
+The ``"fast"`` strategy will extract the text using ``pdfminer`` and process the raw text with ``partition_text``.
+If the PDF text is not extractable, ``partition_pdf`` will fall back to ``"ocr_only"``. We recommend using the
+``"fast"`` strategy in most cases where the PDF has extractable text.
+
+If a PDF is copy protected, ``partition_pdf`` can process the document with the ``"hi_res"`` strategy (which
+will treat it like an image), but cannot process the document with the ``"fast"`` strategy. 
+If the user chooses ``"fast"`` on a copy protected PDF, ``partition_pdf`` will fall back to the ``"hi_res"``
+strategy. If ``detectron2`` is not installed, ``partition_pdf`` will fail for copy protected
+PDFs because the document will not be processable by any of the available methods.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.pdf import partition_pdf
+
+  # This will process without issue
+  elements = partition_pdf("example-docs/copy-protected.pdf", strategy="hi_res")
+
+  # This will output a warning and fall back to hi_res
+  elements = partition_pdf("example-docs/copy-protected.pdf", strategy="fast")
+
 
 ``partition_image``
 ---------------------
@@ -192,6 +485,12 @@ Examples:
 The ``partition_image`` function has the same API as ``partition_pdf``, which is document above.
 The only difference is that ``partition_image`` does not need to convert a PDF to an image
 prior to processing. The ``partition_image`` function supports ``.png`` and ``.jpg`` files.
+
+You can also specify what languages to use for OCR with the ``ocr_languages`` kwarg. For example,
+use ``ocr_languages="eng+deu"`` to use the English and German language packs. See the
+`Tesseract documentation <https://github.com/tesseract-ocr/tessdata>`_ for a full list of languages and
+install instructions.
+
 
 Examples:
 
@@ -202,6 +501,37 @@ Examples:
   # Returns a List[Element] present in the pages of the parsed image document
   elements = partition_image("example-docs/layout-parser-paper-fast.jpg")
 
+  # Applies the English and Swedish language pack for ocr
+  elements = partition_image("example-docs/layout-parser-paper-fast.jpg", ocr_languages="eng+swe")
+
+
+The ``strategy`` kwarg controls the method that will be used to process the PDF.
+The available strategies for images are ``"auto"``, ``"hi_res"`` and ``"ocr_only"``.
+
+The ``"auto"`` strategy will choose the partitioning strategy based on document characteristics and the function kwargs.
+If ``infer_table_structure`` is passed, the strategy will be ``"hi_res"`` because that is the only strategy that
+currently extracts tables for PDFs. Otherwise, ``"auto"`` will choose ``ocr_only``. ``"auto"`` is the default strategy.
+
+The ``"hi_res"`` strategy will identify the layout of the document using ``detectron2``. The advantage of `"hi_res"` is that it
+uses the document layout to gain additional information about document elements. We recommend using this strategy
+if your use case is highly sensitive to correct classifications for document elements. If ``detectron2`` is not available,
+the ``"hi_res"`` strategy will fall back to the ``"ocr_only"`` strategy.
+
+The ``"ocr_only"`` strategy runs the document through Tesseract for OCR and then runs the raw text through ``partition_text``.
+Currently, ``"hi_res"`` has difficulty ordering elements for documents with multiple columns. If you have a document with
+multiple columns that does not have extractable text, we recoomend using the ``"ocr_only"`` strategy.
+
+It is helpful to use ``"ocr_only"`` instead of ``"hi_res"``
+if ``detectron2`` does not detect a text element in the image. To run example below, ensure you
+have the Korean language pack for Tesseract installed on your system.
+
+
+.. code:: python
+
+  from unstructured.partition.image import partition_image
+
+  filename = "example-docs/english-and-korean.png"
+  elements = partition_image(filename=filename, ocr_languages="eng+kor", strategy="ocr_only")
 
 
 ``partition_email``
@@ -240,6 +570,74 @@ Examples:
   elements = partition_email(text=text, include_headers=True)
 
 
+``partition_msg``
+-----------------
+
+The ``partition_msg`` functions processes ``.msg`` files, which is a filetype specific
+to email exports from Microsoft Outlook.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.msg import partition_msg
+
+  elements = partition_msg(filename="example-docs/fake-email.msg")
+
+
+``partition_epub``
+---------------------
+
+The ``partition_epub`` function processes e-books in EPUB3 format. The function
+first converts the document to HTML using ``pandocs`` and then calls ``partition_html``.
+You'll need `pandocs <https://pandoc.org/installing.html>`_ installed on your system
+to use ``partition_epub``.
+
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.epub import partition_epub
+
+  elements = partition_epub(filename="example-docs/winter-sports.epub")
+
+
+``partition_rtf``
+---------------------
+
+The ``partition_rtf`` function processes rich text files. The function
+first converts the document to HTML using ``pandocs`` and then calls ``partition_html``.
+You'll need `pandocs <https://pandoc.org/installing.html>`_ installed on your system
+to use ``partition_rtf``.
+
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.rtf import partition_rtf
+
+  elements = partition_rtf(filename="example-docs/fake-doc.rtf")
+
+
+``partition_md``
+---------------------
+
+The ``partition_md`` function provides the ability to parse markdown files. The
+following workflow shows how to use ``partition_md``.
+
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.md import partition_md
+
+  elements = partition_md(filename="README.md")
+
+
+
 ``partition_text``
 ---------------------
 
@@ -261,232 +659,81 @@ Examples:
     text = f.read()
   elements = partition_text(text=text)
 
-
-``extract_attachment_info``
-----------------------------
-
-The ``extract_attachment_info`` function takes an ``email.message.Message`` object
-as input and returns the a list of dictionaries containing the attachment information,
-such as ``filename``, ``size``, ``payload``, etc. The attachment is saved to the ``output_dir``
-if specified.
-
-.. code:: python
-
-  import email
-  from unstructured.partition.email import extract_attachment_info
-
-  with open("example-docs/fake-email-attachment.eml", "r") as f:
-      msg = email.message_from_file(f)
-  attachment_info = extract_attachment_info(msg, output_dir="example-docs")
-
-
-``is_bulleted_text``
-----------------------
-
-Uses regular expression patterns to check if a snippet of text is a bullet point. Only
-triggers if the bullet point appears at the start of the snippet.
+If the text has extra line breaks for formatting purposes, you can group
+together the broken text using the ``paragraph_grouper`` kwarg. The
+``paragraph_grouper`` kwarg is a function that accepts a string and returns
+another string.
 
 Examples:
 
 .. code:: python
 
-  from unstructured.partition.text_type import is_bulleted_text
-
-  # Returns True
-  is_bulleted_text("● An excellent point!")
-
-  # Returns False
-  is_bulleted_text("I love Morse Code! ●●●")
+  from unstructured.partition.text import partition_text
+  from unstructured.cleaners.core import group_broken_paragraphs
 
 
-``is_possible_narrative_text``
-------------------------------
+  text = """The big brown fox
+  was walking down the lane.
 
-The ``is_possible_narrative_text`` function determines if a section of text is a candidate
-for consideration as narrative text. The function performs the following checks on input text:
+  At the end of the lane, the
+  fox met a bear."""
 
-* Empty text cannot be narrative text
-* Text that is all numeric cannot be narrative text
-* Text that does not contain a verb cannot be narrative text
-* Narrative text must contain at least one English word (if ``language`` is set to "en")
-* Text that exceeds the specified caps ratio cannot be narrative text. The threshold
-  is configurable with the ``cap_threshold`` kwarg. To ignore this check, you can set
-  ``cap_threshold=1.0``. You can also set the threshold by using the
-  ``UNSTRUCTURED_NARRATIVE_TEXT_CAP_THRESHOLD`` environment variable. The environment variable
-  takes precedence over the kwarg.
-* If a the text contains too many non-alpha characters it is
-  not narrative text.
-  The default is to expect a minimum of 50% alpha characters
-  (not countings spaces). You can change the minimum value with the
-  ``non_alpha_ratio`` kwarg or the ``UNSTRUCTURED_NARRATIVE_TEXT_NON_ALPHA_RATIO`` environment variable.
-  The environment variables takes precedence over the kwarg.
-* The cap ratio test does not apply to text that is all uppercase.
-* If you use the ``language=""`` kwarg or set the ``UNSTRUCTURED_LANGUAGE`` environment variable to ``""``, the function will skip the verb check and the English word check.
-
-
-Examples:
-
-.. code:: python
-
-  from unstructured.partition.text_type import is_possible_narrative_text
-
-  # Returns True because the example passes all the checks
-  example_1 = "Make sure you brush your teeth before you go to bed."
-  is_possible_narrative_text(example_1)
-
-  # Returns False because the text exceeds the caps ratio and does not contain a verb
-  example_2 = "ITEM 1A. RISK FACTORS"
-  is_possible_narrative_text(example_2)
-
-  # Returns True because the text has a verb and does not exceed the cap_threshold
-  example_3 = "OLD MCDONALD HAD A FARM"
-  is_possible_narrative_text(example_3, cap_threshold=1.0)
-
-
-``is_possible_title``
----------------------
-
-The ``is_possible_title`` function determines if a section of text is a candidate
-for consideration as a title. The function performs the following checks:
-
-* Empty text cannot be a title
-* Text that is all numeric cannot be a title.
-* If a title contains too many words it is not a title. The default max length is ``12``. You can change the max length with
-  the ``title_max_word_length`` kwarg or the ``UNSTRUCTURED_TITLE_MAX_WORD_LENGTH`` environment variable. The environment
-  variable takes precedence over the kwarg.
-* If a text contains too many non-alpha characters it is not a
-  title. The default is to expect a minimum of 50% alpha characters
-  (not countings spaces). You can change the minimum value with the
-  ``non_alpha_ratio`` kwarg or the ``UNSTRUCTURED_TITLE_NON_ALPHA_RATIO`` environment variable.
-  The environment variables takes precedence over the kwarg.
-* Narrative text must contain at least one English word (if ``language`` is set to "en")
-* If a title contains more than one sentence that exceeds a certain length, it cannot be a title. Sentence length threshold is controlled by the ``sentence_min_length`` kwarg and defaults to 5.
-* If a segment of text ends in a comma, it is not considered a potential title. This is to avoid salutations like "To My Dearest Friends," getting flagged as titles.
-* If you use the ``language=""`` kwarg or set the ``UNSTRUCTURED_LANGUAGE`` environment variable to ``""``, the function will skip the English word check.
-
-
-
-Examples:
-
-.. code:: python
-
-  from unstructured.partition.text_type import is_possible_title
-
-  # Returns True because the text passes all the tests
-  example_2 = "ITEM 1A. RISK FACTORS"
-  is_possible_title(example_2)
-
-  # Returns True because there is only one sentence
-  example_2 = "Make sure you brush your teeth before you go to bed."
-  is_possible_title(example_2, sentence_min_length=5)
-
-  # Returns False because there are two sentences
-  example_3 = "Make sure you brush your teeth. Do it before you go to bed."
-  is_possible_title(example_3, sentence_min_length=5)
-
-
-``contains_us_phone_number``
-----------------------------
-
-Checks to see if a section of text contains a US phone number.
-
-Examples:
-
-.. code:: python
-
-  from unstructured.partition.text_type import contains_us_phone_number
-
-  # Returns True because the text includes a phone number
-  contains_us_phone_number("Phone number: 215-867-5309")
-
-
-``contains_verb``
------------------
-
-Checks if the text contains a verb. This is used in ``is_possible_narrative_text``, but can
-be used independently as well. The function identifies verbs using the NLTK part of speech
-tagger. Text that is all upper case is lower cased before part of speech detection. This is
-because the upper case letters sometimes cause the part of speech tagger to miss verbs.
-The following part of speech tags are identified as verbs:
-
-* ``VB``
-* ``VBG``
-* ``VBD``
-* ``VBN``
-* ``VBP``
-* ``VBZ``
-
-Examples:
-
-.. code:: python
-
-  from unstructured.partition.text_type import contains_verb
-
-  # Returns True because the text contains a verb
-  example_1 = "I am going to run to the store to pick up some milk."
-  contains_verb(example_1)
-
-  # Returns False because the text does not contain a verb
-  example_2 = "A friendly dog"
-  contains_verb(example_2)
-
-
-``sentence_count``
-------------------
-
-Counts the number of sentences in a section of text. Optionally, you can only include
-sentences that exceed a specified word count. Punctuation counts as a word token
-in the sentence. The function uses the NLTK sentence and word tokeniers to identify
-distinct sentences and words.
-
-Examples:
-
-.. code:: python
-
-  from unstructured.partition.text_type import sentence_count
-
-  example = "Look at me! I am a document with two sentences."
-
-  # Returns 2 because the example contains two sentences
-  sentence_count(example)
-
-  # Returns 1 because the first sentence in the example does not contain five word tokens.
-  sentence_count(example, min_length=5)
-
-
-``exceeds_cap_ratio``
----------------------
-
-Determines if the section of text exceeds the specified caps ratio. Used in
-``is_possible_narrative_text`` and ``is_possible_title``, but can be used independently
-as well. You can set the caps threshold using the ``threshold`` kwarg. The threshold
-defaults to ``0.3``. Only runs on sections of text that are a single sentence. The caps ratio check does not apply to text that is all capitalized.
-
-Examples:
-
-.. code:: python
-
-  from unstructured.partition.text_type import exceeds_cap_ratio
-
-  # Returns True because the text is more than 30% caps
-  example_1 = "LOOK AT ME I AM YELLING"
-  exceeds_cap_ratio(example_1)
-
-  # Returns False because the text is less than 30% caps
-  example_2 = "Look at me, I am no longer yelling"
-  exceeds_cap_ratio(example_2)
-
-  # Returns False because the text is more than 1% caps
-  exceeds_cap_ratio(example_2, threshold=0.01)
-
+  partition_text(text=text, paragraph_grouper=group_broken_paragraphs)
 
 
 ########
 Cleaning
 ########
 
-The cleaning bricks in ``unstructured`` remove unwanted text from source documents.
-Examples include removing extra whitespace, boilerplate, or sentence fragments.
+
+As part of data preparation for an NLP model, it's common to need to clean up your data prior to passing it into the model.
+If there's unwanted content in your output, for example, it could impact the quality of your NLP model.
+To help with this, the ``unstructured`` library includes cleaning bricks to help users sanitize output before sending it to downstream applications.
+
+
+Some cleaning bricks apply automatically.
+In the example in the **Partition** section, the output ``Philadelphia Eaglesâ\x80\x99 victory`` automatically gets converted to ``Philadelphia Eagles' victory`` in ``partition_html`` using the ``replace_unicode_quotes`` cleaning brick.
+You can see how that works in the code snippet below:
+
+.. code:: python
+
+  from unstructured.cleaners.core import replace_unicode_quotes
+
+  replace_unicode_quotes("Philadelphia Eaglesâ\x80\x99 victory")
+
+
+
+Document elements in ``unstructured`` include an ``apply`` method that allow you to apply the text cleaning to the document element without instantiating a new element.
+The ``apply`` method expects a callable that takes a string as input and produces another string as output.
+In the example below, we invoke the ``replace_unicode_quotes`` cleaning brick using the ``apply`` method.
+
+
+.. code:: python
+
+  from unstructured.documents.elements import Text
+
+  element = Text("Philadelphia Eaglesâ\x80\x99 victory")
+  element.apply(replace_unicode_quotes)
+  print(element)
+
+
+Since a cleaning brick is just a ``str -> str`` function, users can also easily include their own cleaning bricks for custom data preparation tasks.
+In the example below, we remove citations from a section of text.
+
+
+.. code:: python
+
+  import re
+
+  remove_citations = lambda text: re.sub("\[\d{1,3}\]", "", text)
+
+  element = Text("[1] Geolocated combat footage has confirmed Russian gains in the Dvorichne area northwest of Svatove.")
+  element.apply(remove_citations)
+  print(element)
+
+
+See below for a full list of cleaning bricks in the ``unstructured`` library.
+
 
 
 ``clean``
@@ -539,7 +786,7 @@ Examples:
 ``clean_ordered_bullets``
 -------------------------
 
-Remove alpha-numeric bullets from the beginning of text up to three “sub-section” levels.
+Remove alphanumeric bullets from the beginning of text up to three “sub-section” levels.
 
 Examples:
 
@@ -599,6 +846,49 @@ Examples:
 
   # Returns "ITEM 1A: RISK FACTORS"
   clean_trailing_punctuation("ITEM 1A: RISK FACTORS.")
+
+
+``group_broken_paragraphs``
+---------------------------
+
+Groups together paragraphs that are broken up with line breaks
+for visual or formatting purposes. This is common in ``.txt`` files.
+By default, ``group_broken_paragraphs`` groups together lines split
+by ``\n``. You can change that behavior with the ``line_split``
+kwarg. The function considers ``\n\n`` to be a paragraph break by
+default. You can change that behavior with the ``paragraph_split`` kwarg.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.cleaners.core import group_broken_paragraphs
+
+  text = """The big brown fox
+  was walking down the lane.
+
+  At the end of the lane, the
+  fox met a bear."""
+
+  group_broken_paragraphs(text)
+
+.. code:: python
+
+  import re
+  from unstructured.cleaners.core import group_broken_paragraphs
+
+  para_split_re = re.compile(r"(\s*\n\s*){3}")
+
+  text = """The big brown fox
+
+  was walking down the lane.
+
+
+  At the end of the lane, the
+
+  fox met a bear."""
+
+  group_broken_paragraphs(text, paragraph_split=para_split_re)
 
 
 ``replace_unicode_quotes``
@@ -680,6 +970,23 @@ Examples:
   clean_postfix(text, r"(END|STOP)", ignore_case=True)
 
 
+``clean_non_ascii_chars``
+-------------------------
+
+Removes non-ascii characters from a string.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.cleaners.core import clean_non_ascii_chars
+
+  text = "\x88This text contains®non-ascii characters!●"
+
+  # Returns "This text containsnon-ascii characters!"
+  clean_non_ascii_chars(text)
+
+
 ``extract_text_before``
 -----------------------
 
@@ -687,7 +994,7 @@ Extracts text that occurs before the specified pattern.
 
 Options:
 
-* If ``index`` is set, extract before the ``(index + 1)``th occurence of the pattern. The default is ``0``.
+* If ``index`` is set, extract before the ``(index + 1)``\th occurrence of the pattern. The default is ``0``.
 * Strips leading whitespace if ``strip`` is set to ``True``. The default is ``True``.
 
 
@@ -710,7 +1017,7 @@ Extracts text that occurs after the specified pattern.
 
 Options:
 
-* If ``index`` is set, extract after the ``(index + 1)``th occurence of the pattern. The default is ``0``.
+* If ``index`` is set, extract after the ``(index + 1)``\th occurrence of the pattern. The default is ``0``.
 * Strips trailing whitespace if ``strip`` is set to ``True``. The default is ``True``.
 
 
@@ -724,6 +1031,37 @@ Examples:
 
   # Returns "Look at me, I'm flying!"
   extract_text_after(text, r"SPEAKER \d{1}:")
+
+
+``bytes_string_to_string``
+---------------------------
+
+Converts an output string that looks like a byte string to a string using the specified encoding. This
+happens sometimes in ``partition_html`` when there is a character like an emoji that isn't expected
+by the HTML parser. In that case, the encoded bytes get processed.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.cleaners.core import bytes_string_to_string
+
+  text = "Hello ð\x9f\x98\x80"
+  # The output should be "Hello 😀"
+  bytes_string_to_string(text, encoding="utf-8")
+
+
+.. code:: python
+
+  from unstructured.cleaners.core import bytes_string_to_string
+  from unstructured.partition.html import partition_html
+
+  text = """\n<html charset="utf-8"><p>Hello 😀</p></html>"""
+  elements = partition_html(text=text)
+  elements[0].apply(bytes_string_to_string)
+  # The output should be "Hello 😀"
+  elements[0].text
+
 
 ``extract_email_address``
 --------------------------
@@ -834,7 +1172,7 @@ Examples:
 ``extract_ordered_bullets``
 ---------------------------
 
-Extracts alpha-numeric bullets from the beginning of text up to three “sub-section” levels.
+Extracts alphanumeric bullets from the beginning of text up to three “sub-section” levels.
 
 Examples:
 
@@ -884,8 +1222,21 @@ Examples:
 Staging
 #######
 
-Staging bricks in ``unstructured`` prepare extracted text for downstream tasks such
-as machine learning inference and data labeling.
+Staging bricks in the ``unstructured`` package help prepare your data for ingestion into downstream systems.
+A staging brick accepts a list of document elements as input and return an appropriately formatted dictionary as output.
+In the example below, we get our narrative text samples prepared for ingestion into LabelStudio using
+``the stage_for_label_studio`` brick.
+We can take this data and directly upload it into LabelStudio to quickly get started with an NLP labeling task.
+
+
+.. code:: python
+
+  import json
+  from unstructured.staging.label_studio import stage_for_label_studio
+
+  output = stage_for_label_studio(narrative_text)
+  print(json.dumps(output[:2], indent=4))
+
 
 ``convert_to_dict``
 --------------------
@@ -1017,9 +1368,7 @@ Examples:
 
     By the weekend, a second cold front will drop down from Canada and bring a reinforcing shot of chilly air across the eastern half of the country."""
 
-    chunks = stage_for_transformers([NarrativeText(text=text)], tokenizer)
-
-    results = [nlp(chunk) for chunk in chunks]
+    elements = stage_for_transformers([NarrativeText(text=text)], tokenizer)
 
 
 The following optional keyword arguments can be specified in
@@ -1205,6 +1554,61 @@ See the `LabelStudio docs <https://labelstud.io/tags/labels.html>`_ for a full l
 for labels and annotations.
 
 
+``stage_for_baseplate``
+-----------------------
+
+The ``stage_for_baseplate`` staging function prepares a list of ``Element`` objects for ingestion
+into `Baseplate <https://docs.baseplate.ai/introduction>`_, an LLM backend with a spreadsheet interface.
+After running the ``stage_for_baseplate`` function, you can use the
+`Baseplate API <https://docs.baseplate.ai/api-reference/documents/upsert-data-rows>`_ to upload the documents
+to Baseplate. The following example code shows how to use the ``stage_for_baseplate`` function.
+
+.. code:: python
+
+  from unstructured.documents.elements import ElementMetadata, NarrativeText, Title
+  from unstructured.staging.baseplate import stage_for_baseplate
+
+  metadata = ElementMetadata(filename="fox.epub")
+
+  elements = [
+    Title("A Wonderful Story About A Fox", metadata=metadata),
+    NarrativeText(
+      "A fox ran into the chicken coop and the chickens flew off!",
+      metadata=metadata,
+    ),
+  ]
+
+  rows = stage_for_baseplate(elements)
+
+The output will look like:
+
+.. code:: python
+
+  {
+        "rows": [
+            {
+                "data": {
+                    "element_id": "ad270eefd1cc68d15f4d3e51666d4dc8",
+                    "coordinates": None,
+                    "text": "A Wonderful Story About A Fox",
+                    "type": "Title",
+                },
+                "metadata": {"filename": "fox.epub"},
+            },
+            {
+                "data": {
+                    "element_id": "8275769fdd1804f9f2b55ad3c9b0ef1b",
+                    "coordinates": None,
+                    "text": "A fox ran into the chicken coop and the chickens flew off!",
+                    "type": "NarrativeText",
+                },
+                "metadata": {"filename": "fox.epub"},
+            },
+        ],
+    }
+
+
+
 ``stage_for_prodigy``
 --------------------------
 
@@ -1325,12 +1729,12 @@ files to an S3 bucket.
 
   # Upload staged data files to S3 from local output directory.
   def upload_staged_files():
-      import boto3
-      s3 = boto3.client("s3")
+      from s3fs import S3FileSystem
+      fs = S3FileSystem()
       for filename in os.listdir(LOCAL_OUTPUT_DIRECTORY):
           filepath = os.path.join(LOCAL_OUTPUT_DIRECTORY, filename)
           upload_key = os.path.join(S3_BUCKET_KEY_PREFIX, filename)
-          s3.upload_file(filepath, Bucket=S3_BUCKET_NAME, Key=upload_key)
+          fs.put_file(lpath=filepath, rpath=os.path.join(S3_BUCKET_NAME, upload_key))
 
   upload_staged_files()
 
@@ -1352,7 +1756,7 @@ The output is a list of dictionaries, each one with two keys:
 "text" with the content of the element and
 "entities" with an empty list.
 
-You can also specify specify entities in the ``stage_for_datasaur`` brick. Entities
+You can also specify entities in the ``stage_for_datasaur`` brick. Entities
 you specify in the input will be included in the entities key in the output. The list
 of entities is a list of dictionaries and must have all of the keys in the example below.
 The list of entities must be the same length as the list of elements. Use an empty
@@ -1394,3 +1798,232 @@ Examples:
   metadata = [{"type": "title"}, {"type": "text"}]
 
   argilla_dataset = stage_for_argilla(elements, "text_classification", metadata=metadata)
+
+
+######################
+Other helper functions
+######################
+
+The ``unstructured`` library also contains other useful helpful functions to aid in processing documents.
+You can see a list of the available helper functions below:
+
+
+``is_bulleted_text``
+----------------------
+
+Uses regular expression patterns to check if a snippet of text is a bullet point. Only
+triggers if the bullet point appears at the start of the snippet.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.text_type import is_bulleted_text
+
+  # Returns True
+  is_bulleted_text("● An excellent point!")
+
+  # Returns False
+  is_bulleted_text("I love Morse Code! ●●●")
+
+
+``is_possible_narrative_text``
+------------------------------
+
+The ``is_possible_narrative_text`` function determines if a section of text is a candidate
+for consideration as narrative text. The function performs the following checks on input text:
+
+* Empty text cannot be narrative text
+* Text that is all numeric cannot be narrative text
+* Text that does not contain a verb cannot be narrative text
+* Narrative text must contain at least one English word (if ``language`` is set to "en")
+* Text that exceeds the specified caps ratio cannot be narrative text. The threshold
+  is configurable with the ``cap_threshold`` kwarg. To ignore this check, you can set
+  ``cap_threshold=1.0``. You can also set the threshold by using the
+  ``UNSTRUCTURED_NARRATIVE_TEXT_CAP_THRESHOLD`` environment variable. The environment variable
+  takes precedence over the kwarg.
+* If a the text contains too many non-alpha characters it is
+  not narrative text.
+  The default is to expect a minimum of 50% alpha characters
+  (not countings spaces). You can change the minimum value with the
+  ``non_alpha_ratio`` kwarg or the ``UNSTRUCTURED_NARRATIVE_TEXT_NON_ALPHA_RATIO`` environment variable.
+  The environment variables takes precedence over the kwarg.
+* The cap ratio test does not apply to text that is all uppercase.
+* If you use the ``language=""`` kwarg or set the ``UNSTRUCTURED_LANGUAGE`` environment variable to ``""``, the function will skip the verb check and the English word check.
+* If you use the ``language_checks=True`` kwarg or set the ``UNSTRUCTURED_LANGUAGE_CHECKS`` environment variable to ``"true"``, the function will apply language specific checks such as vocab part of speech checks.
+
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.text_type import is_possible_narrative_text
+
+  # Returns True because the example passes all the checks
+  example_1 = "Make sure you brush your teeth before you go to bed."
+  is_possible_narrative_text(example_1)
+
+  # Returns False because the text exceeds the caps ratio and does not contain a verb
+  example_2 = "ITEM 1A. RISK FACTORS"
+  is_possible_narrative_text(example_2)
+
+  # Returns True because the text has a verb and does not exceed the cap_threshold
+  example_3 = "OLD MCDONALD HAD A FARM"
+  is_possible_narrative_text(example_3, cap_threshold=1.0)
+
+
+``is_possible_title``
+---------------------
+
+The ``is_possible_title`` function determines if a section of text is a candidate
+for consideration as a title. The function performs the following checks:
+
+* Empty text cannot be a title
+* Text that is all numeric cannot be a title.
+* If a title contains too many words it is not a title. The default max length is ``12``. You can change the max length with
+  the ``title_max_word_length`` kwarg or the ``UNSTRUCTURED_TITLE_MAX_WORD_LENGTH`` environment variable. The environment
+  variable takes precedence over the kwarg.
+* If a text contains too many non-alpha characters it is not a
+  title. The default is to expect a minimum of 50% alpha characters
+  (not countings spaces). You can change the minimum value with the
+  ``non_alpha_ratio`` kwarg or the ``UNSTRUCTURED_TITLE_NON_ALPHA_RATIO`` environment variable.
+  The environment variables takes precedence over the kwarg.
+* Narrative text must contain at least one English word (if ``language`` is set to "en")
+* If a title contains more than one sentence that exceeds a certain length, it cannot be a title. Sentence length threshold is controlled by the ``sentence_min_length`` kwarg and defaults to 5.
+* If a segment of text ends in a comma, it is not considered a potential title. This is to avoid salutations like "To My Dearest Friends," getting flagged as titles.
+* If you use the ``language=""`` kwarg or set the ``UNSTRUCTURED_LANGUAGE`` environment variable to ``""``, the function will skip the English word check.
+* If you use the ``language_checks=True`` kwarg or set the ``UNSTRUCTURED_LANGUAGE_CHECKS`` environment variable to ``"true"``, the function will apply language specific checks such as vocab part of speech checks.
+
+
+
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.text_type import is_possible_title
+
+  # Returns True because the text passes all the tests
+  example_2 = "ITEM 1A. RISK FACTORS"
+  is_possible_title(example_2)
+
+  # Returns True because there is only one sentence
+  example_2 = "Make sure you brush your teeth before you go to bed."
+  is_possible_title(example_2, sentence_min_length=5)
+
+  # Returns False because there are two sentences
+  example_3 = "Make sure you brush your teeth. Do it before you go to bed."
+  is_possible_title(example_3, sentence_min_length=5)
+
+
+``contains_us_phone_number``
+----------------------------
+
+Checks to see if a section of text contains a US phone number.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.text_type import contains_us_phone_number
+
+  # Returns True because the text includes a phone number
+  contains_us_phone_number("Phone number: 215-867-5309")
+
+
+``contains_verb``
+-----------------
+
+Checks if the text contains a verb. This is used in ``is_possible_narrative_text``, but can
+be used independently as well. The function identifies verbs using the NLTK part of speech
+tagger. Text that is all upper case is lower cased before part of speech detection. This is
+because the upper case letters sometimes cause the part of speech tagger to miss verbs.
+The following part of speech tags are identified as verbs:
+
+* ``VB``
+* ``VBG``
+* ``VBD``
+* ``VBN``
+* ``VBP``
+* ``VBZ``
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.text_type import contains_verb
+
+  # Returns True because the text contains a verb
+  example_1 = "I am going to run to the store to pick up some milk."
+  contains_verb(example_1)
+
+  # Returns False because the text does not contain a verb
+  example_2 = "A friendly dog"
+  contains_verb(example_2)
+
+
+``sentence_count``
+------------------
+
+Counts the number of sentences in a section of text. Optionally, you can only include
+sentences that exceed a specified word count. Punctuation counts as a word token
+in the sentence. The function uses the NLTK sentence and word tokeniers to identify
+distinct sentences and words.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.text_type import sentence_count
+
+  example = "Look at me! I am a document with two sentences."
+
+  # Returns 2 because the example contains two sentences
+  sentence_count(example)
+
+  # Returns 1 because the first sentence in the example does not contain five word tokens.
+  sentence_count(example, min_length=5)
+
+
+``exceeds_cap_ratio``
+---------------------
+
+Determines if the section of text exceeds the specified caps ratio. Used in
+``is_possible_narrative_text`` and ``is_possible_title``, but can be used independently
+as well. You can set the caps threshold using the ``threshold`` kwarg. The threshold
+defaults to ``0.3``. Only runs on sections of text that are a single sentence. The caps ratio check does not apply to text that is all capitalized.
+
+Examples:
+
+.. code:: python
+
+  from unstructured.partition.text_type import exceeds_cap_ratio
+
+  # Returns True because the text is more than 30% caps
+  example_1 = "LOOK AT ME I AM YELLING"
+  exceeds_cap_ratio(example_1)
+
+  # Returns False because the text is less than 30% caps
+  example_2 = "Look at me, I am no longer yelling"
+  exceeds_cap_ratio(example_2)
+
+  # Returns False because the text is more than 1% caps
+  exceeds_cap_ratio(example_2, threshold=0.01)
+
+
+``extract_attachment_info``
+----------------------------
+
+The ``extract_attachment_info`` function takes an ``email.message.Message`` object
+as input and returns the a list of dictionaries containing the attachment information,
+such as ``filename``, ``size``, ``payload``, etc. The attachment is saved to the ``output_dir``
+if specified.
+
+.. code:: python
+
+  import email
+  from unstructured.partition.email import extract_attachment_info
+
+  with open("example-docs/fake-email-attachment.eml", "r") as f:
+      msg = email.message_from_file(f)
+  attachment_info = extract_attachment_info(msg, output_dir="example-docs")

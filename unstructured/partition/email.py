@@ -1,40 +1,46 @@
+import datetime
 import email
-import sys
 import re
+import sys
 from email.message import Message
-from typing import Dict, IO, List, Optional, Tuple, Union
+from functools import partial
+from typing import IO, Dict, List, Optional, Tuple, Union
+
+from unstructured.partition.common import exactly_one
 
 if sys.version_info < (3, 8):
     from typing_extensions import Final
 else:
     from typing import Final
 
-from unstructured.cleaners.core import replace_mime_encodings, clean_extra_whitespace
+from unstructured.cleaners.core import clean_extra_whitespace, replace_mime_encodings
 from unstructured.cleaners.extract import (
+    extract_datetimetz,
+    extract_email_address,
     extract_ip_address,
     extract_ip_address_name,
     extract_mapi_id,
-    extract_datetimetz,
-    extract_email_address,
-)
-from unstructured.documents.email_elements import (
-    Recipient,
-    Sender,
-    Subject,
-    ReceivedInfo,
-    MetaData,
 )
 from unstructured.documents.elements import (
     Element,
     ElementMetadata,
-    Text,
     Image,
     NarrativeText,
+    Text,
     Title,
 )
+from unstructured.documents.email_elements import (
+    MetaData,
+    ReceivedInfo,
+    Recipient,
+    Sender,
+    Subject,
+)
+from unstructured.file_utils.filetype import FileType, add_metadata_with_filetype
+from unstructured.logger import logger
+from unstructured.nlp.patterns import EMAIL_DATETIMETZ_PATTERN_RE
 from unstructured.partition.html import partition_html
-from unstructured.partition.text import split_by_paragraph, partition_text
-
+from unstructured.partition.text import partition_text, split_by_paragraph
 
 VALID_CONTENT_SOURCES: Final[List[str]] = ["text/html", "text/plain"]
 
@@ -45,7 +51,7 @@ def _parse_received_data(data: str) -> List[Element]:
     mapi_id = extract_mapi_id(data)
     datetimetz = extract_datetimetz(data)
 
-    elements: List[Element] = list()
+    elements: List[Element] = []
     if ip_address_names and ip_addresses:
         for name, ip in zip(ip_address_names, ip_addresses):
             elements.append(ReceivedInfo(name=name, text=ip))
@@ -53,7 +59,7 @@ def _parse_received_data(data: str) -> List[Element]:
         elements.append(ReceivedInfo(name="mapi_id", text=mapi_id[0]))
     if datetimetz:
         elements.append(
-            ReceivedInfo(name="received_datetimetz", text=str(datetimetz), datestamp=datetimetz)
+            ReceivedInfo(name="received_datetimetz", text=str(datetimetz), datestamp=datetimetz),
         )
     return elements
 
@@ -68,7 +74,7 @@ def _parse_email_address(data: str) -> Tuple[str, str]:
 
 
 def partition_email_header(msg: Message) -> List[Element]:
-    elements: List[Element] = list()
+    elements: List[Element] = []
     for item in msg.raw_items():
         if item[0] == "To":
             text = _parse_email_address(item[1])
@@ -86,17 +92,58 @@ def partition_email_header(msg: Message) -> List[Element]:
     return elements
 
 
+def build_email_metadata(msg: Message, filename: Optional[str]) -> ElementMetadata:
+    """Creates an ElementMetadata object from the header information in the email."""
+    header_dict = dict(msg.raw_items())
+    email_date = header_dict.get("Date")
+    if email_date is not None:
+        email_date = convert_to_iso_8601(email_date)
+
+    sent_from = header_dict.get("To")
+    if sent_from is not None:
+        sent_from = [sender.strip() for sender in sent_from.split(",")]
+
+    sent_to = header_dict.get("To")
+    if sent_to is not None:
+        sent_to = [recipient.strip() for recipient in sent_to.split(",")]
+
+    return ElementMetadata(
+        sent_to=sent_to,
+        sent_from=sent_from,
+        subject=header_dict.get("Subject"),
+        date=email_date,
+        filename=filename,
+    )
+
+
+def convert_to_iso_8601(time: str) -> Optional[str]:
+    """Converts the datetime from the email output to ISO-8601 format."""
+    cleaned_time = clean_extra_whitespace(time)
+    regex_match = EMAIL_DATETIMETZ_PATTERN_RE.search(cleaned_time)
+    if regex_match is None:
+        logger.warning(f"{time} did not match RFC-2822 format. Unable to extract the time.")
+        return None
+
+    start, end = regex_match.span()
+    dt_string = cleaned_time[start:end]
+    datetime_object = datetime.datetime.strptime(dt_string, "%a, %d %b %Y %H:%M:%S %z")
+    return datetime_object.isoformat()
+
+
 def extract_attachment_info(
-    message: Message, output_dir: Optional[str] = None
+    message: Message,
+    output_dir: Optional[str] = None,
 ) -> List[Dict[str, str]]:
     list_attachments = []
-    attachment_info = {}
+
     for part in message.walk():
         if "content-disposition" in part:
             cdisp = part["content-disposition"].split(";")
             cdisp = [clean_extra_whitespace(item) for item in cdisp]
 
             for item in cdisp:
+                attachment_info = {}
+
                 if item.lower() == "attachment":
                     continue
                 key, value = item.split("=")
@@ -122,7 +169,8 @@ def has_embedded_image(element):
 
 
 def find_embedded_image(
-    element: Union[NarrativeText, Title], indices: re.Match
+    element: Union[NarrativeText, Title],
+    indices: re.Match,
 ) -> Tuple[Element, Element]:
     start, end = indices.start(), indices.end()
 
@@ -133,11 +181,13 @@ def find_embedded_image(
     return Image(text=image_info[:-1]), element
 
 
+@add_metadata_with_filetype(FileType.EML)
 def partition_email(
     filename: Optional[str] = None,
     file: Optional[IO] = None,
     text: Optional[str] = None,
     content_source: str = "text/html",
+    encoding: Optional[str] = None,
     include_headers: bool = False,
 ) -> List[Element]:
     """Partitions an .eml documents into its constituent elements.
@@ -152,35 +202,40 @@ def partition_email(
     content_source
         default: "text/html"
         other: "text/plain"
+    encoding
+        The encoding method used to decode the text input. If None, utf-8 will be used.
     """
+    if not encoding:
+        encoding = "utf-8"
+
     if content_source not in VALID_CONTENT_SOURCES:
         raise ValueError(
             f"{content_source} is not a valid value for content_source. "
-            f"Valid content sources are: {VALID_CONTENT_SOURCES}"
+            f"Valid content sources are: {VALID_CONTENT_SOURCES}",
         )
 
-    if not any([filename, file, text]):
-        raise ValueError("One of filename, file, or text must be specified.")
+    if text is not None and text.strip() == "" and not file and not filename:
+        return []
 
-    if filename is not None and not file and not text:
-        with open(filename, "r") as f:
+    # Verify that only one of the arguments was provided
+    exactly_one(filename=filename, file=file, text=text)
+
+    if filename is not None:
+        with open(filename) as f:
             msg = email.message_from_file(f)
 
-    elif file is not None and not filename and not text:
+    elif file is not None:
         file_content = file.read()
         if isinstance(file_content, bytes):
-            file_text = file_content.decode("utf-8")
+            file_text = file_content.decode(encoding)
         else:
             file_text = file_content
 
         msg = email.message_from_string(file_text)
 
-    elif text is not None and not filename and not file:
+    elif text is not None:
         _text: str = str(text)
         msg = email.message_from_string(_text)
-
-    else:
-        raise ValueError("Only one of filename, file, or text can be specified.")
 
     content_map: Dict[str, str] = {}
     for part in msg.walk():
@@ -208,23 +263,25 @@ def partition_email(
         elements = partition_html(text=content, include_metadata=False)
         for element in elements:
             if isinstance(element, Text):
-                element.apply(replace_mime_encodings)
+                _replace_mime_encodings = partial(replace_mime_encodings, encoding=encoding)
+                element.apply(_replace_mime_encodings)
     elif content_source == "text/plain":
         list_content = split_by_paragraph(content)
         elements = partition_text(text=content)
 
     for idx, element in enumerate(elements):
         indices = has_embedded_image(element)
-        if (isinstance(element, NarrativeText) or isinstance(element, Title)) and indices:
+        if (isinstance(element, (NarrativeText, Title))) and indices:
             image_info, clean_element = find_embedded_image(element, indices)
             elements[idx] = clean_element
             elements.insert(idx + 1, image_info)
 
-    header: List[Element] = list()
+    header: List[Element] = []
     if include_headers:
         header = partition_email_header(msg)
     all_elements = header + elements
 
+    metadata = build_email_metadata(msg, filename=filename)
     for element in all_elements:
-        element.metadata = ElementMetadata(filename=filename)
+        element.metadata = metadata
     return all_elements

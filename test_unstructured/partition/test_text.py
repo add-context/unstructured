@@ -1,8 +1,10 @@
 import os
 import pathlib
+
 import pytest
 
-from unstructured.documents.elements import Address, NarrativeText, Title, ListItem
+from unstructured.cleaners.core import group_broken_paragraphs
+from unstructured.documents.elements import Address, ListItem, NarrativeText, Title
 from unstructured.partition.text import partition_text
 
 DIRECTORY = pathlib.Path(__file__).parent.resolve()
@@ -17,16 +19,76 @@ EXPECTED_OUTPUT = [
 ]
 
 
-def test_partition_text_from_filename():
-    filename = os.path.join(DIRECTORY, "..", "..", "example-docs", "fake-text.txt")
+@pytest.mark.parametrize(
+    ("filename", "encoding"),
+    [("fake-text.txt", "utf-8"), ("fake-text.txt", None), ("fake-text-utf-16-be.txt", "utf-16-be")],
+)
+def test_partition_text_from_filename(filename, encoding):
+    filename = os.path.join(DIRECTORY, "..", "..", "example-docs", filename)
+    elements = partition_text(filename=filename, encoding=encoding)
+    assert len(elements) > 0
+    assert elements == EXPECTED_OUTPUT
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["fake-text-utf-16.txt", "fake-text-utf-16-le.txt", "fake-text-utf-32.txt"],
+)
+def test_partition_text_from_filename_default_encoding(filename):
+    filename = os.path.join(DIRECTORY, "..", "..", "example-docs", filename)
     elements = partition_text(filename=filename)
     assert len(elements) > 0
     assert elements == EXPECTED_OUTPUT
 
 
+@pytest.mark.parametrize(
+    ("filename", "encoding", "error"),
+    [
+        ("fake-text.txt", "utf-16", UnicodeDecodeError),
+        ("fake-text-utf-16-be.txt", "utf-16", UnicodeError),
+    ],
+)
+def test_partition_text_from_filename_raises_econding_error(filename, encoding, error):
+    with pytest.raises(error):
+        filename = os.path.join(DIRECTORY, "..", "..", "example-docs", filename)
+        partition_text(filename=filename, encoding=encoding)
+
+
 def test_partition_text_from_file():
     filename = os.path.join(DIRECTORY, "..", "..", "example-docs", "fake-text.txt")
-    with open(filename, "r") as f:
+    with open(filename) as f:
+        elements = partition_text(file=f)
+    assert len(elements) > 0
+    assert elements == EXPECTED_OUTPUT
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["fake-text-utf-16.txt", "fake-text-utf-16-le.txt", "fake-text-utf-32.txt"],
+)
+def test_partition_text_from_file_default_encoding(filename):
+    filename = os.path.join(DIRECTORY, "..", "..", "example-docs", filename)
+    with open(filename) as f:
+        elements = partition_text(file=f)
+    assert len(elements) > 0
+    assert elements == EXPECTED_OUTPUT
+
+
+def test_partition_text_from_bytes_file():
+    filename = os.path.join(DIRECTORY, "..", "..", "example-docs", "fake-text.txt")
+    with open(filename, "rb") as f:
+        elements = partition_text(file=f)
+    assert len(elements) > 0
+    assert elements == EXPECTED_OUTPUT
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["fake-text-utf-16.txt", "fake-text-utf-16-le.txt", "fake-text-utf-32.txt"],
+)
+def test_partition_text_from_bytes_file_default_encoding(filename):
+    filename = os.path.join(DIRECTORY, "..", "..", "example-docs", filename)
+    with open(filename, "rb") as f:
         elements = partition_text(file=f)
     assert len(elements) > 0
     assert elements == EXPECTED_OUTPUT
@@ -34,11 +96,15 @@ def test_partition_text_from_file():
 
 def test_partition_text_from_text():
     filename = os.path.join(DIRECTORY, "..", "..", "example-docs", "fake-text.txt")
-    with open(filename, "r") as f:
+    with open(filename) as f:
         text = f.read()
     elements = partition_text(text=text)
     assert len(elements) > 0
     assert elements == EXPECTED_OUTPUT
+
+
+def test_partition_text_from_text_works_with_empty_string():
+    assert partition_text(text="") == []
 
 
 def test_partition_text_raises_with_none_specified():
@@ -48,7 +114,7 @@ def test_partition_text_raises_with_none_specified():
 
 def test_partition_text_raises_with_too_many_specified():
     filename = os.path.join(DIRECTORY, "..", "..", "example-docs", "fake-text.txt")
-    with open(filename, "r") as f:
+    with open(filename) as f:
         text = f.read()
 
     with pytest.raises(ValueError):
@@ -64,4 +130,18 @@ def test_partition_text_captures_everything_even_with_linebreaks():
     assert elements == [
         Title(text="VERY IMPORTANT MEMO"),
         Address(text="DOYLESTOWN, PA 18901"),
+    ]
+
+
+def test_partition_text_groups_broken_paragraphs():
+    text = """The big brown fox
+was walking down the lane.
+
+At the end of the lane,
+the fox met a bear."""
+
+    elements = partition_text(text=text, paragraph_grouper=group_broken_paragraphs)
+    assert elements == [
+        NarrativeText(text="The big brown fox was walking down the lane."),
+        NarrativeText(text="At the end of the lane, the fox met a bear."),
     ]

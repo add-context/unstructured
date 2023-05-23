@@ -1,24 +1,31 @@
 import os
 import pathlib
-import pytest
 import zipfile
 
 import magic
+import pytest
 
-import unstructured.file_utils.filetype as filetype
+from unstructured.file_utils import filetype
 from unstructured.file_utils.filetype import (
-    detect_filetype,
     FileType,
-    DOCX_MIME_TYPES,
-    XLSX_MIME_TYPES,
+    _is_text_file_a_json,
+    detect_filetype,
 )
 
 FILE_DIRECTORY = pathlib.Path(__file__).parent.resolve()
 EXAMPLE_DOCS_DIRECTORY = os.path.join(FILE_DIRECTORY, "..", "..", "example-docs")
 
+DOCX_MIME_TYPES = [
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]
+
+XLSX_MIME_TYPES = [
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]
+
 
 @pytest.mark.parametrize(
-    "file, expected",
+    ("file", "expected"),
     [
         ("layout-parser-paper-fast.pdf", FileType.PDF),
         ("fake.docx", FileType.DOCX),
@@ -28,8 +35,14 @@ EXAMPLE_DOCS_DIRECTORY = os.path.join(FILE_DIRECTORY, "..", "..", "example-docs"
         ("factbook.xml", FileType.XML),
         ("example-10k.html", FileType.HTML),
         ("fake-html.html", FileType.HTML),
-        ("fake-excel.xlsx", FileType.XLSX),
+        ("stanley-cups.xlsx", FileType.XLSX),
+        # NOTE(robinson) - currently failing in the docker tests because the detected
+        # MIME type is text/csv
+        # ("stanley-cups.csv", FileType.CSV),
         ("fake-power-point.pptx", FileType.PPTX),
+        ("winter-sports.epub", FileType.EPUB),
+        ("spring-weather.html.json", FileType.JSON),
+        ("fake.odt", FileType.ODT),
     ],
 )
 def test_detect_filetype_from_filename(file, expected):
@@ -38,7 +51,7 @@ def test_detect_filetype_from_filename(file, expected):
 
 
 @pytest.mark.parametrize(
-    "file, expected",
+    ("file", "expected"),
     [
         ("layout-parser-paper-fast.pdf", FileType.PDF),
         ("fake.docx", FileType.DOCX),
@@ -48,18 +61,31 @@ def test_detect_filetype_from_filename(file, expected):
         ("factbook.xml", FileType.XML),
         ("example-10k.html", FileType.HTML),
         ("fake-html.html", FileType.HTML),
-        ("fake-excel.xlsx", FileType.XLSX),
+        ("stanley-cups.xlsx", FileType.XLSX),
+        ("stanley-cups.csv", FileType.CSV),
         ("fake-power-point.pptx", FileType.PPTX),
+        ("winter-sports.epub", FileType.EPUB),
+        ("fake-doc.rtf", FileType.RTF),
+        ("spring-weather.html.json", FileType.JSON),
+        ("fake.odt", FileType.ODT),
     ],
 )
 def test_detect_filetype_from_filename_with_extension(monkeypatch, file, expected):
+    """Test that we detect the filetype from the filename extension when libmagic is not available
+    or the file does not exist."""
+    # Test when libmagic is not available
     monkeypatch.setattr(filetype, "LIBMAGIC_AVAILABLE", False)
     filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, file)
+    assert detect_filetype(filename) == expected
+    # Test when the file does not exist
+    monkeypatch.setattr(filetype, "LIBMAGIC_AVAILABLE", True)
+    extension = pathlib.Path(file).suffix
+    filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "not-on-disk" + extension)
     assert detect_filetype(filename) == expected
 
 
 @pytest.mark.parametrize(
-    "file, expected",
+    ("file", "expected"),
     [
         ("layout-parser-paper-fast.pdf", FileType.PDF),
         ("fake.docx", FileType.DOCX),
@@ -71,8 +97,12 @@ def test_detect_filetype_from_filename_with_extension(monkeypatch, file, expecte
         # */xml and some return */html. Either could be acceptable depending on the OS
         ("example-10k.html", [FileType.HTML, FileType.XML]),
         ("fake-html.html", FileType.HTML),
-        ("fake-excel.xlsx", FileType.XLSX),
+        ("stanley-cups.xlsx", FileType.XLSX),
+        # NOTE(robinson) - currently failing in the docker tests because the detected
+        # MIME type is text/csv
+        # ("stanley-cups.csv", FileType.CSV),
         ("fake-power-point.pptx", FileType.PPTX),
+        ("winter-sports.epub", FileType.EPUB),
     ],
 )
 def test_detect_filetype_from_file(file, expected):
@@ -85,9 +115,8 @@ def test_detect_filetype_from_file(file, expected):
 def test_detect_filetype_from_file_raises_without_libmagic(monkeypatch):
     monkeypatch.setattr(filetype, "LIBMAGIC_AVAILABLE", False)
     filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake-text.txt")
-    with open(filename, "rb") as f:
-        with pytest.raises(ImportError):
-            detect_filetype(file=f)
+    with open(filename, "rb") as f, pytest.raises(ImportError):
+        detect_filetype(file=f)
 
 
 def test_detect_xml_application_xml(monkeypatch):
@@ -95,6 +124,19 @@ def test_detect_xml_application_xml(monkeypatch):
     filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake.xml")
     filetype = detect_filetype(filename=filename)
     assert filetype == FileType.XML
+
+
+def test_detect_text_csv(monkeypatch, filename="sample-docs/stanley-cup.csv"):
+    monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: "text/csv")
+    filetype = detect_filetype(filename=filename)
+    assert filetype == FileType.CSV
+
+
+def test_detect_xml_application_rtf(monkeypatch):
+    monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: "application/rtf")
+    filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake.rtf")
+    filetype = detect_filetype(filename=filename)
+    assert filetype == FileType.RTF
 
 
 def test_detect_xml_text_xml(monkeypatch):
@@ -119,7 +161,11 @@ def test_detect_html_text_xml(monkeypatch):
 
 
 def test_detect_docx_filetype_application_octet_stream(monkeypatch):
-    monkeypatch.setattr(magic, "from_buffer", lambda *args, **kwargs: "application/octet-stream")
+    monkeypatch.setattr(
+        magic,
+        "from_buffer",
+        lambda *args, **kwargs: "application/octet-stream",
+    )
     filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake.docx")
     with open(filename, "rb") as f:
         filetype = detect_filetype(file=f)
@@ -127,7 +173,11 @@ def test_detect_docx_filetype_application_octet_stream(monkeypatch):
 
 
 def test_detect_docx_filetype_application_octet_stream_with_filename(monkeypatch):
-    monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: "application/octet-stream")
+    monkeypatch.setattr(
+        magic,
+        "from_file",
+        lambda *args, **kwargs: "application/octet-stream",
+    )
     filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake.docx")
     filetype = detect_filetype(filename=filename)
     assert filetype == FileType.DOCX
@@ -150,40 +200,64 @@ def test_detect_application_zip_files(monkeypatch, tmpdir):
 
 
 def test_detect_doc_file_from_mime_type(monkeypatch):
-    monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: "application/msword")
+    monkeypatch.setattr(
+        magic,
+        "from_file",
+        lambda *args, **kwargs: "application/msword",
+    )
     filetype = detect_filetype(filename="fake.doc")
     assert filetype == FileType.DOC
 
 
 def test_detect_ppt_file_from_mime_type(monkeypatch):
-    monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: "application/vnd.ms-powerpoint")
+    monkeypatch.setattr(
+        magic,
+        "from_file",
+        lambda *args, **kwargs: "application/vnd.ms-powerpoint",
+    )
     filetype = detect_filetype(filename="fake.ppt")
     assert filetype == FileType.PPT
 
 
 def test_detect_xls_file_from_mime_type(monkeypatch):
-    monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: "application/vnd.ms-excel")
+    monkeypatch.setattr(
+        magic,
+        "from_file",
+        lambda *args, **kwargs: "application/vnd.ms-excel",
+    )
     filetype = detect_filetype(filename="fake.xls")
     assert filetype == FileType.XLS
 
 
 def test_detect_xlsx_filetype_application_octet_stream(monkeypatch):
-    monkeypatch.setattr(magic, "from_buffer", lambda *args, **kwargs: "application/octet-stream")
-    filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake-excel.xlsx")
+    monkeypatch.setattr(
+        magic,
+        "from_buffer",
+        lambda *args, **kwargs: "application/octet-stream",
+    )
+    filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "stanley-cups.xlsx")
     with open(filename, "rb") as f:
         filetype = detect_filetype(file=f)
     assert filetype == FileType.XLSX
 
 
 def test_detect_xlsx_filetype_application_octet_stream_with_filename(monkeypatch):
-    monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: "application/octet-stream")
-    filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake-excel.xlsx")
+    monkeypatch.setattr(
+        magic,
+        "from_file",
+        lambda *args, **kwargs: "application/octet-stream",
+    )
+    filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "stanley-cups.xlsx")
     filetype = detect_filetype(filename=filename)
     assert filetype == FileType.XLSX
 
 
 def test_detect_pptx_filetype_application_octet_stream(monkeypatch):
-    monkeypatch.setattr(magic, "from_buffer", lambda *args, **kwargs: "application/octet-stream")
+    monkeypatch.setattr(
+        magic,
+        "from_buffer",
+        lambda *args, **kwargs: "application/octet-stream",
+    )
     filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake-power-point.pptx")
     with open(filename, "rb") as f:
         filetype = detect_filetype(file=f)
@@ -191,14 +265,22 @@ def test_detect_pptx_filetype_application_octet_stream(monkeypatch):
 
 
 def test_detect_pptx_filetype_application_octet_stream_with_filename(monkeypatch):
-    monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: "application/octet-stream")
+    monkeypatch.setattr(
+        magic,
+        "from_file",
+        lambda *args, **kwargs: "application/octet-stream",
+    )
     filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake-power-point.pptx")
     filetype = detect_filetype(filename=filename)
     assert filetype == FileType.PPTX
 
 
 def test_detect_application_octet_stream_returns_none_with_unknown(monkeypatch):
-    monkeypatch.setattr(magic, "from_buffer", lambda *args, **kwargs: "application/octet-stream")
+    monkeypatch.setattr(
+        magic,
+        "from_buffer",
+        lambda *args, **kwargs: "application/octet-stream",
+    )
     filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake-text.txt")
     with open(filename, "rb") as f:
         filetype = detect_filetype(file=f)
@@ -223,7 +305,7 @@ def test_detect_docx_filetype_word_mime_type(monkeypatch):
 
 def test_detect_xlsx_filetype_word_mime_type(monkeypatch):
     monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: XLSX_MIME_TYPES[0])
-    filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake-excel.xlsx")
+    filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "stanley-cups.xlsx")
     with open(filename, "rb") as f:
         filetype = detect_filetype(file=f)
     assert filetype == FileType.XLSX
@@ -239,16 +321,21 @@ def test_detect_filetype_detects_png(monkeypatch):
     assert detect_filetype(filename="made_up.png") == FileType.PNG
 
 
-def test_detect_filetype_detects_unknown_text_types_as_txt(monkeypatch):
+def test_detect_filetype_detects_unknown_text_types_as_txt(monkeypatch, tmpdir):
     monkeypatch.setattr(magic, "from_file", lambda *args, **kwargs: "text/new-type")
-    assert detect_filetype(filename="made_up.png") == FileType.TXT
+    monkeypatch.setattr(os.path, "isfile", lambda *args, **kwargs: True)
+
+    filename = os.path.join(tmpdir.dirname, "made_up.png")
+    with open(filename, "w") as f:
+        f.write("here is a fake file!")
+
+    assert detect_filetype(filename=filename) == FileType.TXT
 
 
 def test_detect_filetype_raises_with_both_specified():
     filename = os.path.join(EXAMPLE_DOCS_DIRECTORY, "fake-email.eml")
-    with open(filename, "rb") as f:
-        with pytest.raises(ValueError):
-            detect_filetype(filename=filename, file=f)
+    with open(filename, "rb") as f, pytest.raises(ValueError):
+        detect_filetype(filename=filename, file=f)
 
 
 def test_detect_filetype_raises_with_none_specified():
@@ -258,3 +345,16 @@ def test_detect_filetype_raises_with_none_specified():
 
 def test_filetype_order():
     assert FileType.HTML < FileType.XML
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (b"d\xe2\x80", False),
+    ],
+)
+def test_is_text_file_a_json(content, expected):
+    from io import BytesIO
+
+    with BytesIO(content) as f:
+        assert _is_text_file_a_json(file=f) == expected

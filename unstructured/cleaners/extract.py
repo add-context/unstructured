@@ -1,15 +1,15 @@
-import re
 import datetime
+import re
 from typing import List
-from unstructured.nlp.patterns import (
-    IP_ADDRESS_PATTERN_RE,
-    IP_ADDRESS_NAME_PATTERN,
-    MAPI_ID_PATTERN,
-    EMAIL_DATETIMETZ_PATTERN,
-    EMAIL_ADDRESS_PATTERN,
-)
 
-from unstructured.nlp.patterns import US_PHONE_NUMBERS_RE
+from unstructured.nlp.patterns import (
+    EMAIL_ADDRESS_PATTERN,
+    EMAIL_DATETIMETZ_PATTERN,
+    IP_ADDRESS_NAME_PATTERN,
+    IP_ADDRESS_PATTERN_RE,
+    MAPI_ID_PATTERN,
+    US_PHONE_NUMBERS_RE,
+)
 
 
 def _get_indexed_match(text: str, pattern: str, index: int = 0) -> re.Match:
@@ -29,7 +29,7 @@ def _get_indexed_match(text: str, pattern: str, index: int = 0) -> re.Match:
 
 def extract_text_before(text: str, pattern: str, index: int = 0, strip: bool = True) -> str:
     """Extracts texts that occurs before the specified pattern. By default, it will use
-    the first occurence of the pattern (index 0). Use the index kwarg to choose a different
+    the first occurrence of the pattern (index 0). Use the index kwarg to choose a different
     index.
 
     Input
@@ -44,7 +44,7 @@ def extract_text_before(text: str, pattern: str, index: int = 0, strip: bool = T
 
 def extract_text_after(text: str, pattern: str, index: int = 0, strip: bool = True) -> str:
     """Extracts texts that occurs before the specified pattern. By default, it will use
-    the first occurence of the pattern (index 0). Use the index kwarg to choose a different
+    the first occurrence of the pattern (index 0). Use the index kwarg to choose a different
     index.
 
     Input
@@ -99,7 +99,7 @@ def extract_us_phone_number(text: str):
 
 def extract_ordered_bullets(text) -> tuple:
     """Extracts the start of bulleted text sections bullets
-    accounting numeric and alpha-numeric types.
+    accounting numeric and alphanumeric types.
 
     Output
     -----

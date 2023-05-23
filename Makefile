@@ -1,6 +1,7 @@
 PACKAGE_NAME := unstructured
-PIP_VERSION := 22.2.1
-
+PIP_VERSION := 23.1.2
+CURRENT_DIR := $(shell pwd)
+ARCH := $(shell uname -m)
 
 .PHONY: help
 help: Makefile
@@ -25,12 +26,12 @@ install-ci: install-base-pip-packages install-nltk-models install-huggingface in
 .PHONY: install-base-pip-packages
 install-base-pip-packages:
 	python3 -m pip install pip==${PIP_VERSION}
-	pip install -r requirements/base.txt
+	python3 -m pip install -r requirements/base.txt
 
 .PHONY: install-huggingface
 install-huggingface:
 	python3 -m pip install pip==${PIP_VERSION}
-	pip install -r requirements/huggingface.txt
+	python3 -m pip install -r requirements/huggingface.txt
 
 .PHONE: install-nltk-models
 install-nltk-models:
@@ -39,28 +40,66 @@ install-nltk-models:
 
 .PHONY: install-test
 install-test:
-	pip install -r requirements/test.txt
+	python3 -m pip install -r requirements/test.txt
 
 .PHONY: install-dev
 install-dev:
-	pip install -r requirements/dev.txt
+	python3 -m pip install -r requirements/dev.txt
 
 .PHONY: install-build
 install-build:
-	pip install -r requirements/build.txt
+	python3 -m pip install -r requirements/build.txt
+
+.PHONY: install-ingest-google-drive
+install-ingest-google-drive:
+	python3 -m pip install -r requirements/ingest-google-drive.txt
 
 ## install-ingest-s3:       install requirements for the s3 connector
 .PHONY: install-ingest-s3
 install-ingest-s3:
-	pip install -r requirements/ingest-s3.txt
+	python3 -m pip install -r requirements/ingest-s3.txt
+
+.PHONY: install-ingest-azure
+install-ingest-azure:
+	python3 -m pip install -r requirements/ingest-azure.txt
+
+.PHONY: install-ingest-discord
+install-ingest-discord:
+	pip install -r requirements/ingest-discord.txt
+
+.PHONY: install-ingest-github
+install-ingest-github:
+	python3 -m pip install -r requirements/ingest-github.txt
+
+.PHONY: install-ingest-gitlab
+install-ingest-gitlab:
+	python3 -m pip install -r requirements/ingest-gitlab.txt
+
+.PHONY: install-ingest-reddit
+install-ingest-reddit:
+	python3 -m pip install -r requirements/ingest-reddit.txt
+
+.PHONY: install-ingest-slack
+install-ingest-slack:
+	pip install -r requirements/ingest-slack.txt
+
+.PHONY: install-ingest-wikipedia
+install-ingest-wikipedia:
+	python3 -m pip install -r requirements/ingest-wikipedia.txt
 
 .PHONY: install-unstructured-inference
 install-unstructured-inference:
-	pip install -r requirements/local-inference.txt
+	python3 -m pip install -r requirements/local-inference.txt
+
+.PHONY: install-tensorboard
+install-tensorboard:
+	@if [ ${ARCH} = "arm64" ] || [ ${ARCH} = "aarch64" ]; then\
+		python3 -m pip install tensorboard>=2.12.2;\
+	fi
 
 .PHONY: install-detectron2
-install-detectron2:
-	pip install "detectron2@git+https://github.com/facebookresearch/detectron2.git@v0.6#egg=detectron2"
+install-detectron2: install-tensorboard
+	python3 -m pip install "detectron2@git+https://github.com/facebookresearch/detectron2.git@e2ce8dc#egg=detectron2"
 
 ## install-local-inference: installs requirements for local inference
 .PHONY: install-local-inference
@@ -82,7 +121,15 @@ pip-compile:
 	# NOTE(robinson) - doc/requirements.txt is where the GitHub action for building
 	# sphinx docs looks for additional requirements
 	cp requirements/build.txt docs/requirements.txt
-	pip-compile --upgrade requirements/ingest-s3.in requirements/base.txt --output-file requirements/ingest-s3.txt
+	pip-compile --upgrade --extra=s3        --output-file=requirements/ingest-s3.txt        requirements/base.txt setup.py
+	pip-compile --upgrade --extra=azure     --output-file=requirements/ingest-azure.txt     requirements/base.txt setup.py
+	pip-compile --upgrade --extra=discord   --output-file=requirements/ingest-azure.txt     requirements/base.txt setup.py
+	pip-compile --upgrade --extra=reddit    --output-file=requirements/ingest-reddit.txt    requirements/base.txt setup.py
+	pip-compile --upgrade --extra=github    --output-file=requirements/ingest-github.txt    requirements/base.txt setup.py
+	pip-compile --upgrade --extra=gitlab    --output-file=requirements/ingest-gitlab.txt    requirements/base.txt setup.py
+	pip-compile --upgrade --extra=slack     --output-file=requirements/ingest-slack.txt     requirements/base.txt setup.py
+	pip-compile --upgrade --extra=wikipedia --output-file=requirements/ingest-wikipedia.txt requirements/base.txt setup.py
+	pip-compile --upgrade --extra=google-drive --output-file=requirements/ingest-google-drive.txt  requirements/base.txt setup.py
 
 ## install-project-local:   install unstructured into your local python environment
 .PHONY: install-project-local
@@ -111,6 +158,7 @@ check: check-src check-tests check-version
 ## check-src:               runs linters (source only, no tests)
 .PHONY: check-src
 check-src:
+	ruff . --select I,UP015,UP032,UP034,UP018,COM,C4,PT,SIM,PLR0402 --ignore PT011,PT012,SIM117
 	black --line-length 100 ${PACKAGE_NAME} --check
 	flake8 ${PACKAGE_NAME}
 	mypy ${PACKAGE_NAME} --ignore-missing-imports --check-untyped-defs
@@ -130,19 +178,50 @@ check-scripts:
 .PHONY: check-version
 check-version:
     # Fail if syncing version would produce changes
-	scripts/version-sync.sh -c
+	scripts/version-sync.sh -c \
+		-f "unstructured/__version__.py" semver
 
 ## tidy:                    run black
 .PHONY: tidy
 tidy:
+	ruff . --select I,UP015,UP032,UP034,UP018,COM,C4,PT,SIM,PLR0402 --fix-only || true
 	black --line-length 100 ${PACKAGE_NAME}
 	black --line-length 100 test_${PACKAGE_NAME}
 
 ## version-sync:            update __version__.py with most recent version from CHANGELOG.md
 .PHONY: version-sync
 version-sync:
-	scripts/version-sync.sh
+	scripts/version-sync.sh \
+		-f "unstructured/__version__.py" semver
 
 .PHONY: check-coverage
 check-coverage:
 	coverage report --fail-under=95
+
+##########
+# Docker #
+##########
+
+# Docker targets are provided for convenience only and are not required in a standard development environment
+
+DOCKER_IMAGE ?= unstructured:dev
+
+.PHONY: docker-build
+docker-build:
+	PIP_VERSION=${PIP_VERSION} DOCKER_IMAGE_NAME=${DOCKER_IMAGE} ./scripts/docker-build.sh
+
+.PHONY: docker-start-bash
+docker-start-bash:
+	docker run -ti --rm ${DOCKER_IMAGE}
+
+.PHONY: docker-test
+docker-test:
+	docker run --rm \
+	-v ${CURRENT_DIR}/test_unstructured:/home/test_unstructured \
+	-v ${CURRENT_DIR}/test_unstructured_ingest:/home/test_unstructured_ingest \
+	$(DOCKER_IMAGE) \
+	bash -c "pytest $(if $(TEST_NAME),-k $(TEST_NAME),) test_unstructured"
+
+.PHONY: docker-smoke-test
+docker-smoke-test:
+	DOCKER_IMAGE=${DOCKER_IMAGE} ./scripts/docker-smoke-test.sh

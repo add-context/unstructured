@@ -1,9 +1,26 @@
+import quopri
 import re
 import sys
 import unicodedata
-import quopri
 
-from unstructured.nlp.patterns import UNICODE_BULLETS_RE
+from unstructured.nlp.patterns import (
+    DOUBLE_PARAGRAPH_PATTERN_RE,
+    PARAGRAPH_PATTERN,
+    PARAGRAPH_PATTERN_RE,
+    UNICODE_BULLETS_RE,
+)
+
+
+def clean_non_ascii_chars(text) -> str:
+    """Cleans non-ascii characters from unicode string.
+
+    Example
+    -------
+    \x88This text contains non-ascii characters!\x88
+        -> This text contains non-ascii characters!
+    """
+    en = text.encode("ascii", "ignore")
+    return en.decode()
 
 
 def clean_bullets(text) -> str:
@@ -23,7 +40,7 @@ def clean_bullets(text) -> str:
 
 def clean_ordered_bullets(text) -> str:
     """Cleans the start of bulleted text sections up to three “sub-section”
-    bullets accounting numeric and alpha-numeric types.
+    bullets accounting numeric and alphanumeric types.
 
     Example
     -------
@@ -43,6 +60,49 @@ def clean_ordered_bullets(text) -> str:
         return text
 
     return text_cl
+
+
+def group_broken_paragraphs(
+    text: str,
+    line_split: re.Pattern = PARAGRAPH_PATTERN_RE,
+    paragraph_split: re.Pattern = DOUBLE_PARAGRAPH_PATTERN_RE,
+) -> str:
+    """Groups paragraphs that have line breaks for visual/formatting purposes.
+    For example:
+
+    '''The big red fox
+    is walking down the lane.
+
+    At the end of the lane
+    the fox met a bear.'''
+
+    Gets converted to
+
+    '''The big red fox is walking down the lane.
+    At the end of the land the fox met a bear.'''
+    """
+    paragraphs = paragraph_split.split(text)
+    clean_paragraphs = []
+    for paragraph in paragraphs:
+        if not paragraph.strip():
+            continue
+
+        # NOTE(robinson) - This block is to account for lines like the following that shouldn't be
+        # grouped together, but aren't separated by a double line break.
+        #     Apache License
+        #     Version 2.0, January 2004
+        #     http://www.apache.org/licenses/
+        para_split = line_split.split(paragraph)
+        all_lines_short = all(len(line.strip().split(" ")) < 5 for line in para_split)
+
+        if UNICODE_BULLETS_RE.match(paragraph.strip()):
+            clean_paragraphs.extend(re.split(PARAGRAPH_PATTERN, paragraph))
+        elif all_lines_short:
+            clean_paragraphs.extend([line for line in para_split if line.strip()])
+        else:
+            clean_paragraphs.append(re.sub(PARAGRAPH_PATTERN, " ", paragraph))
+
+    return "\n\n".join(clean_paragraphs)
 
 
 # TODO(robinson) - There's likely a cleaner was to accomplish this and get all of the
@@ -127,14 +187,14 @@ def clean_trailing_punctuation(text: str) -> str:
     return text.strip().rstrip(".,:;")
 
 
-def replace_mime_encodings(text: str) -> str:
-    """Replaces MIME encodings with their UTF-8 equivalent characters.
+def replace_mime_encodings(text: str, encoding: str = "utf-8") -> str:
+    """Replaces MIME encodings with their equivalent characters in the specified encoding.
 
     Example
     -------
     5 w=E2=80-99s -> 5 w’s
     """
-    return quopri.decodestring(text.encode()).decode("utf-8")
+    return quopri.decodestring(text.encode()).decode(encoding)
 
 
 def clean_prefix(text: str, pattern: str, ignore_case: bool = False, strip: bool = True) -> str:
@@ -149,7 +209,7 @@ def clean_prefix(text: str, pattern: str, ignore_case: bool = False, strip: bool
     strip: If True, removes leading whitespace from the cleaned string.
     """
     flags = re.IGNORECASE if ignore_case else 0
-    clean_text = re.sub(r"^{0}".format(pattern), "", text, flags=flags)
+    clean_text = re.sub(rf"^{pattern}", "", text, flags=flags)
     clean_text = clean_text.lstrip() if strip else clean_text
     return clean_text
 
@@ -166,7 +226,7 @@ def clean_postfix(text: str, pattern: str, ignore_case: bool = False, strip: boo
     strip: If True, removes trailing whitespace from the cleaned string.
     """
     flags = re.IGNORECASE if ignore_case else 0
-    clean_text = re.sub(r"{0}$".format(pattern), "", text, flags=flags)
+    clean_text = re.sub(rf"{pattern}$", "", text, flags=flags)
     clean_text = clean_text.rstrip() if strip else clean_text
     return clean_text
 
@@ -198,3 +258,10 @@ def clean(
     cleaned_text = clean_extra_whitespace(cleaned_text) if extra_whitespace else cleaned_text
     cleaned_text = clean_bullets(cleaned_text) if bullets else cleaned_text
     return cleaned_text.strip()
+
+
+def bytes_string_to_string(text: str, encoding: str = "utf-8"):
+    """Converts a string representation of a byte string to a regular string using the
+    specified encoding."""
+    text_bytes = bytes([ord(char) for char in text])
+    return text_bytes.decode(encoding)

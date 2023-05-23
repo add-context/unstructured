@@ -17,14 +17,14 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-from setuptools import setup, find_packages
+from setuptools import find_packages, setup
 
 from unstructured.__version__ import __version__
 
 setup(
     name="unstructured",
     description="A library that prepares raw documents for downstream ML tasks.",
-    long_description=open("README.md", "r", encoding="utf-8").read(),
+    long_description=open("README.md", encoding="utf-8").read(),  # noqa: SIM115
     long_description_content_type="text/markdown",
     keywords="NLP PDF HTML CV XML parsing preprocessing",
     url="https://github.com/Unstructured-IO/unstructured",
@@ -47,18 +47,23 @@ setup(
     packages=find_packages(),
     version=__version__,
     entry_points={
-        'console_scripts': ['unstructured-ingest=unstructured.ingest.main:main'],
+        "console_scripts": ["unstructured-ingest=unstructured.ingest.main:main"],
     },
     install_requires=[
         "argilla",
+        "chardet",
         "lxml",
+        "msg_parser",
         "nltk",
         "openpyxl",
         "pandas",
+        "pdfminer.six",
         "pillow",
+        "pypandoc",
         "python-docx",
         "python-pptx",
         "python-magic",
+        "markdown",
         "requests",
         # NOTE(robinson) - The following dependencies are pinned
         # to address security scans
@@ -72,8 +77,26 @@ setup(
             "torch",
             "transformers",
         ],
-        "local-inference": ["unstructured-inference>=0.2.4"],
-        "s3": ["boto3"],
+        "local-inference": [
+            "unstructured-inference==0.4.4",
+        ],
+        "s3": ["s3fs", "fsspec"],
+        "azure": ["adlfs", "fsspec"],
+        "discord": ["discord.py"],
+        "github": [
+            # NOTE - pygithub==1.58.0 fails due to https://github.com/PyGithub/PyGithub/issues/2436
+            # In the future, we can update this to pygithub>1.58.0
+            "pygithub==1.57.0",
+        ],
+        "gitlab": ["python-gitlab"],
+        "reddit": ["praw"],
+        "slack": ["slack_sdk"],
+        "wikipedia": ["wikipedia"],
+        "google-drive": [
+            "google-api-python-client",
+            # consistency with local-inference-pin
+            "protobuf<3.21",
+        ],
     },
     package_dir={"unstructured": "unstructured"},
     package_data={"unstructured": ["nlp/*.txt"]},

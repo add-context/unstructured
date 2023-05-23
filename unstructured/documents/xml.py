@@ -1,10 +1,9 @@
-from typing import Optional, Union, List
+from typing import List, Optional, Union
 
-import lxml.etree as etree
+from lxml import etree
 
-from unstructured.logger import logger
 from unstructured.documents.base import Document, Page
-
+from unstructured.logger import logger
 
 VALID_PARSERS = Union[etree.HTMLParser, etree.XMLParser, None]
 
@@ -55,8 +54,24 @@ class XMLDocument(Document):
 
     def _read_xml(self, content):
         """Reads in an XML file and converts it to an lxml element tree object."""
+        # NOTE(robinson) - without the carriage return at the beginning, you get
+        # output that looks like the following when you run partition_pdf
+        #   'h   3       a   l   i   g   n   =   "   c   e   n   t   e   r   "   >'
+        # The correct output is returned once you add the initial return.
+        is_html_parser = isinstance(self.parser, etree.HTMLParser)
+        if content and not content.startswith("\n") and is_html_parser:
+            content = "\n" + content
         if self.document_tree is None:
-            document_tree = etree.fromstring(content.encode(), self.parser)
+            try:
+                document_tree = etree.fromstring(content, self.parser)
+                if document_tree is None:
+                    raise ValueError("document_tree is None")
+            # NOTE(robinson) - The following ValueError occurs with unicode strings. In that
+            # case, we call back to encoding the string and passing in bytes.
+            #     ValueError: Unicode strings with encoding declaration are not supported.
+            #     Please use  bytes input or XML fragments without declaration.
+            except ValueError:
+                document_tree = etree.fromstring(content.encode(), self.parser)
 
             if self.stylesheet:
                 if isinstance(self.parser, etree.HTMLParser):
@@ -65,7 +80,7 @@ class XMLDocument(Document):
                         "Stylesheets are more commonly parsed with the "
                         "XMLParser. If your HTML does not display properly, try "
                         "`import lxml.etree as etree` and setting "
-                        "`parser=etree.XMLParser()` instead."
+                        "`parser=etree.XMLParser()` instead.",
                     )
                 xslt = etree.parse(self.stylesheet)
                 transform = etree.XSLT(xslt)
@@ -84,7 +99,13 @@ class XMLDocument(Document):
         return doc
 
     @classmethod
-    def from_file(cls, filename, parser: VALID_PARSERS = None, stylesheet: Optional[str] = None):
-        with open(filename, "r+") as f:
+    def from_file(
+        cls,
+        filename,
+        parser: VALID_PARSERS = None,
+        stylesheet: Optional[str] = None,
+        encoding: Optional[str] = "utf-8",
+    ):
+        with open(filename, encoding=encoding) as f:
             content = f.read()
         return cls.from_string(content, parser=parser, stylesheet=stylesheet)

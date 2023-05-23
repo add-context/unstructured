@@ -3,12 +3,16 @@ import tempfile
 from typing import IO, List, Optional
 
 from unstructured.documents.elements import Element
-from unstructured.partition.common import convert_office_doc
+from unstructured.file_utils.filetype import FileType, add_metadata_with_filetype
+from unstructured.partition.common import convert_office_doc, exactly_one
 from unstructured.partition.pptx import partition_pptx
 
 
+@add_metadata_with_filetype(FileType.PPT)
 def partition_ppt(
-    filename: Optional[str] = None, file: Optional[IO] = None, include_page_breaks: bool = False
+    filename: Optional[str] = None,
+    file: Optional[IO] = None,
+    include_page_breaks: bool = False,
 ) -> List[Element]:
     """Partitions Microsoft PowerPoint Documents in .ppt format into their document elements.
 
@@ -21,23 +25,22 @@ def partition_ppt(
     include_page_breaks
         If True, includes a PageBreak element between slides
     """
-    if not any([filename, file]):
-        raise ValueError("One of filename or file must be specified.")
+    # Verify that only one of the arguments was provided
+    if filename is None:
+        filename = ""
+    exactly_one(filename=filename, file=file)
 
-    if filename is not None and not file:
+    if len(filename) > 0:
         _, filename_no_path = os.path.split(os.path.abspath(filename))
         base_filename, _ = os.path.splitext(filename_no_path)
-    elif file is not None and not filename:
+        if not os.path.exists(filename):
+            raise ValueError(f"The file {filename} does not exist.")
+    elif file is not None:
         tmp = tempfile.NamedTemporaryFile(delete=False)
         tmp.write(file.read())
         tmp.close()
         filename = tmp.name
         _, filename_no_path = os.path.split(os.path.abspath(tmp.name))
-    else:
-        raise ValueError("Only one of filename or file can be specified.")
-
-    if not os.path.exists(filename):
-        raise ValueError(f"The file {filename} does not exist.")
 
     base_filename, _ = os.path.splitext(filename_no_path)
 

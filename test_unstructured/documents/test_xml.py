@@ -1,15 +1,15 @@
 import os
 from pathlib import Path
 
-import lxml.etree as etree
 import pytest
+from lxml import etree
 
 from unstructured.documents.xml import XMLDocument
 
 FILEPATH = Path(__file__).absolute().parent
 
 
-@pytest.fixture
+@pytest.fixture()
 def sample_document():
     return """"<SEC-DOCUMENT>
     <TYPE>10-K
@@ -46,7 +46,7 @@ def test_from_string(sample_document):
 
 def test_read_with_stylesheet():
     filename = os.path.join(FILEPATH, "..", "..", "example-docs", "factbook.xml")
-    stylesheet = os.path.join(FILEPATH, "..", "..", "example-docs", "factbook.xsl")
+    stylesheet = os.path.join(FILEPATH, "..", "..", "example-docs", "unsupported", "factbook.xsl")
 
     xml_document = XMLDocument.from_file(filename=filename, stylesheet=stylesheet)
     doc_tree = xml_document.document_tree
@@ -58,7 +58,7 @@ def test_read_with_stylesheet():
 
 def test_read_with_stylesheet_warns_with_html_parser(caplog):
     filename = os.path.join(FILEPATH, "..", "..", "example-docs", "factbook.xml")
-    stylesheet = os.path.join(FILEPATH, "..", "..", "example-docs", "factbook.xsl")
+    stylesheet = os.path.join(FILEPATH, "..", "..", "example-docs", "unsupported", "factbook.xsl")
 
     XMLDocument.from_file(filename=filename, stylesheet=stylesheet, parser=etree.HTMLParser())
     assert "WARNING" in caplog.text

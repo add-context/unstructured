@@ -1,13 +1,17 @@
-import pytest
 from unittest.mock import patch
 
-import unstructured.partition.text_type as text_type
+import pytest
 
-from test_unstructured.nlp.mock_nltk import mock_pos_tag, mock_sent_tokenize, mock_word_tokenize
+from test_unstructured.nlp.mock_nltk import (
+    mock_pos_tag,
+    mock_sent_tokenize,
+    mock_word_tokenize,
+)
+from unstructured.partition import text_type
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         (
             "ITEM 5(a).: MARKET FOR REGISTRANT’S COMMON EQUITY, RELATED STOCKHOLDER MATTERS AND "
@@ -31,7 +35,7 @@ def test_headings_are_not_narrative_text(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("Ask the teacher for an apple.", True),
         ("Ask Me About Intellectual Property", False),  # Exceeds the cap threshold
@@ -46,11 +50,20 @@ def test_is_possible_narrative_text(text, expected, monkeypatch):
     monkeypatch.setattr(text_type, "word_tokenize", mock_word_tokenize)
     monkeypatch.setattr(text_type, "pos_tag", mock_pos_tag)
     monkeypatch.setattr(text_type, "sent_tokenize", mock_sent_tokenize)
+    monkeypatch.setenv("UNSTRUCTURED_LANGUAGE_CHECKS", "true")
     is_possible_narrative = text_type.is_possible_narrative_text(text, cap_threshold=0.3)
     assert is_possible_narrative is expected
 
 
-def test_text_type_handles_non_english_examples():
+def test_narrative_text_language_checks():
+    # NOTE(robinson) - This is true because we don't check english vocab if language checks
+    # are set to False
+    text = "Dal;kdjfal adawels adfjwalsdf. Addad jaja fjawlek"
+    assert text_type.is_possible_narrative_text(text, language_checks=True) is False
+
+
+def test_text_type_handles_non_english_examples(monkeypatch):
+    monkeypatch.setenv("UNSTRUCTURED_LANGUAGE_CHECKS", "true")
     narrative_text = "Я говорю по-русски. Вы тоже?"
     title = "Риски"
 
@@ -76,7 +89,7 @@ def test_text_type_handles_non_english_examples_with_env_var(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("Intellectual Property", True),  # Fails because it exceeds the cap threshold
         (
@@ -93,16 +106,25 @@ def test_text_type_handles_non_english_examples_with_env_var(monkeypatch):
         ("1.A.RISKS", True),  # Tests that "RISKS" gets flagged as an english word
         ("1. Unstructured Technologies", True),  # Make sure we're English words :-)
         ("Big/Brown/Sheet", True),
+        ("LOOK AT THIS IT IS CAPS BUT NOT A TITLE.", False),
     ],
 )
 def test_is_possible_title(text, expected, monkeypatch):
     monkeypatch.setattr(text_type, "sent_tokenize", mock_sent_tokenize)
     monkeypatch.setattr(text_type, "word_tokenize", mock_word_tokenize)
+    monkeypatch.setenv("UNSTRUCTURED_LANGUAGE_CHECKS", "true")
     assert text_type.is_possible_title(text) is expected
 
 
+def test_title_language_checks():
+    # NOTE(robinson) - This is true because we don't check english vocab if language checks
+    # are set to False
+    text = "BTAR ADFJA L"
+    assert text_type.is_possible_narrative_text(text, language_checks=True) is False
+
+
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("8675309", True),
         ("+1 867-5309", True),
@@ -120,7 +142,7 @@ def test_contains_us_phone_number(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("• This is a fine point!", True),
         (" • This is a fine point!", True),  # Has an extra space in front of the bullet
@@ -150,7 +172,7 @@ def test_is_bulletized_text(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("Ask the teacher for an apple", True),
         ("Intellectual property", False),
@@ -163,12 +185,17 @@ def test_contains_verb(text, expected, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("PARROT BEAK", True),
         ("Parrot Beak", True),
         ("parrot beak", True),
         ("parrot!", True),
+        ("?parrot", True),
+        ("zombie?parrot", True),
+        ("notaWordHa 'parrot'", True),
+        ("notaWordHa'parrot'", False),
+        ('notaWordHa "parrot,"', True),
         ("daljdf adlfajldj ajadfa", False),
         ("BTAR ADFJA L", False),
         ("Unstructured Technologies", True),
@@ -181,15 +208,15 @@ def test_contains_english_word(text, expected, monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("Intellectual Property in the United States", True),
         ("Intellectual property helps incentivize innovation.", False),
         ("THIS IS ALL CAPS. BUT IT IS TWO SENTENCES.", False),
-        ("LOOK AT THIS IT IS CAPS BUT NOT A TITLE.", False),
+        ("LOOK AT THIS IT IS CAPS BUT NOT A TITLE.", True),
         ("This Has All Caps. It's Weird But Two Sentences", False),
         ("The Business Report is expected within 6 hours of closing", False),
-        ("", False),
+        ("", True),
     ],
 )
 def test_contains_exceeds_cap_ratio(text, expected, monkeypatch):
@@ -253,7 +280,7 @@ def test_item_titles():
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("Doylestown, PA 18901", True),
         ("DOYLESTOWN, PENNSYLVANIA, 18901", True),

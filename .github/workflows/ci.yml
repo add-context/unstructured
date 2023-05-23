@@ -1,7 +1,7 @@
 name: CI
 
 on:
-  # NOTE(robinson) - We are limiting when we run CI avoid exceeding our 2,000 min/month limt.
+  # NOTE(robinson) - We are limiting when we run CI avoid exceeding our 2,000 min/month limit.
   # We can switch to running on push if we make this repo public or are fine with
   # paying for CI minutes.
   push:
@@ -71,11 +71,48 @@ jobs:
   shellcheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: ShellCheck
         uses: ludeeus/action-shellcheck@master
 
-  test:
+  test_unit:
+    strategy:
+      matrix:
+        python-version: ["3.8","3.9","3.10"]
+    runs-on: ubuntu-latest
+    env:
+      NLTK_DATA: ${{ github.workspace }}/nltk_data
+    needs: [setup, lint]
+    steps:
+    - uses: actions/checkout@v3
+    - uses: actions/cache@v3
+      id: virtualenv-cache
+      with:
+        path: |
+          .venv
+          nltk_data
+        key: unstructured-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements/*.txt') }}
+    # NOTE(robinson) - This is a fallback in case the job does not find the cache.
+    # We can take this out when we implement the fix in CORE-99
+    - name: Setup virtual environment (no cache hit)
+      if: steps.virtualenv-cache.outputs.cache-hit != 'true'
+      run: |
+        python${{ matrix.python-version}} -m venv .venv
+        source .venv/bin/activate
+        make install-ci
+    - name: Test
+      run: |
+        source .venv/bin/activate
+        make install-detectron2
+        sudo apt-get update
+        sudo apt-get install -y libmagic-dev poppler-utils libreoffice pandoc
+        sudo add-apt-repository -y ppa:alex-p/tesseract-ocr5
+        sudo apt-get install -y tesseract-ocr tesseract-ocr-kor
+        tesseract --version
+        make test
+        make check-coverage
+
+  test_ingest:
     strategy:
       matrix:
         python-version: ["3.8","3.9","3.10"]
@@ -101,13 +138,25 @@ jobs:
         source .venv/bin/activate
         make install-ci
     - name: Test
+      env:
+        GH_READ_ONLY_ACCESS_TOKEN: ${{ secrets.GH_READ_ONLY_ACCESS_TOKEN }}
+        SLACK_TOKEN: ${{ secrets.SLACK_TOKEN }}
+        DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
       run: |
         source .venv/bin/activate
         make install-detectron2
-        sudo apt-get install -y libmagic-dev poppler-utils tesseract-ocr libreoffice
-        make test
-        make check-coverage
+        sudo apt-get update
+        sudo apt-get install -y libmagic-dev poppler-utils libreoffice pandoc
+        sudo add-apt-repository -y ppa:alex-p/tesseract-ocr5
+        sudo apt-get install -y tesseract-ocr
+        tesseract --version
         make install-ingest-s3
+        make install-ingest-azure
+        make install-ingest-discord
+        make install-ingest-github
+        make install-ingest-gitlab
+        make install-ingest-slack
+        make install-ingest-wikipedia
         ./test_unstructured_ingest/test-ingest.sh
 
   changelog:
@@ -123,3 +172,32 @@ jobs:
 
     - if: steps.changes.outputs.src == 'true' && github.ref != 'refs/heads/main'
       uses: dangoslen/changelog-enforcer@v3
+
+  # TODO - figure out best practice for caching docker images
+  # (Using the virtualenv to get pytest)
+  test_dockerfile:
+    runs-on: ubuntu-latest
+    needs: [ setup, lint ]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/cache@v3
+        id: virtualenv-cache
+        with:
+          path: |
+            .venv
+            nltk_data
+          key: unstructured-${{ runner.os }}-${{ matrix.python-version }}-${{ hashFiles('requirements/*.txt') }}
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Setup virtual environment (no cache hit)
+        if: steps.virtualenv-cache.outputs.cache-hit != 'true'
+        run: |
+          python${{ matrix.python-version }} -m venv .venv
+      - name: Test Dockerfile
+        run: |
+          source .venv/bin/activate
+          make docker-build
+          make docker-test
+

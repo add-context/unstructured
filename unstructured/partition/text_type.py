@@ -2,7 +2,6 @@
 import os
 import re
 import sys
-
 from typing import List, Optional
 
 if sys.version_info < (3, 8):
@@ -11,18 +10,27 @@ else:
     from typing import Final
 
 from unstructured.cleaners.core import remove_punctuation
+from unstructured.logger import trace_logger
 from unstructured.nlp.english_words import ENGLISH_WORDS
-from unstructured.nlp.patterns import US_PHONE_NUMBERS_RE, UNICODE_BULLETS_RE, US_CITY_STATE_ZIP_RE
+from unstructured.nlp.patterns import (
+    ENDS_IN_PUNCT_RE,
+    UNICODE_BULLETS_RE,
+    US_CITY_STATE_ZIP_RE,
+    US_PHONE_NUMBERS_RE,
+)
 from unstructured.nlp.tokenize import pos_tag, sent_tokenize, word_tokenize
-from unstructured.logger import logger
-
 
 POS_VERB_TAGS: Final[List[str]] = ["VB", "VBG", "VBD", "VBN", "VBP", "VBZ"]
-ENGLISH_WORD_SPLIT_RE = re.compile(r"[\s|\.|-|_|\/]")
+ENGLISH_WORD_SPLIT_RE = re.compile(r"[\s\-,.!?_\/]+")
+NON_LOWERCASE_ALPHA_RE = re.compile(r"[^a-z]")
 
 
 def is_possible_narrative_text(
-    text: str, cap_threshold: float = 0.5, non_alpha_threshold: float = 0.5, language: str = "en"
+    text: str,
+    cap_threshold: float = 0.5,
+    non_alpha_threshold: float = 0.5,
+    language: str = "en",
+    language_checks: bool = False,
 ) -> bool:
     """Checks to see if the text passes all of the checks for a narrative text section.
     You can change the cap threshold using the cap_threshold kwarg or the
@@ -40,36 +48,43 @@ def is_possible_narrative_text(
         narrative text
     language
         The two letter language code for the text. defaults to "en" for English
+    language_checks
+        If True, conducts checks that are specific to the chosen language. Turn on for more
+        accurate partitioning and off for faster processing.
     """
+    _language_checks = os.environ.get("UNSTRUCTURED_LANGUAGE_CHECKS")
+    if _language_checks is not None:
+        language_checks = _language_checks.lower() == "true"
+
     if len(text) == 0:
-        logger.debug("Not narrative. Text is empty.")
+        trace_logger.detail("Not narrative. Text is empty.")  # type: ignore
         return False
 
     if text.isnumeric():
-        logger.debug(f"Not narrative. Text is all numeric:\n\n{text}")
+        trace_logger.detail(f"Not narrative. Text is all numeric:\n\n{text}")  # type: ignore
         return False
 
     language = os.environ.get("UNSTRUCTURED_LANGUAGE", language)
-    if language == "en" and not contains_english_word(text):
+    if language == "en" and language_checks and not contains_english_word(text):
         return False
 
     # NOTE(robinson): it gets read in from the environment as a string so we need to
     # cast it to a float
     cap_threshold = float(
-        os.environ.get("UNSTRUCTURED_NARRATIVE_TEXT_CAP_THRESHOLD", cap_threshold)
+        os.environ.get("UNSTRUCTURED_NARRATIVE_TEXT_CAP_THRESHOLD", cap_threshold),
     )
     if exceeds_cap_ratio(text, threshold=cap_threshold):
-        logger.debug(f"Not narrative. Text exceeds cap ratio {cap_threshold}:\n\n{text}")
+        trace_logger.detail(f"Not narrative. Text exceeds cap ratio {cap_threshold}:\n\n{text}")  # type: ignore # noqa: E501
         return False
 
     non_alpha_threshold = float(
-        os.environ.get("UNSTRUCTURED_NARRATIVE_TEXT_NON_ALPHA_THRESHOLD", non_alpha_threshold)
+        os.environ.get("UNSTRUCTURED_NARRATIVE_TEXT_NON_ALPHA_THRESHOLD", non_alpha_threshold),
     )
     if under_non_alpha_ratio(text, threshold=non_alpha_threshold):
         return False
 
     if (sentence_count(text, 3) < 2) and (not contains_verb(text)) and language == "en":
-        logger.debug(f"Not narrative. Text does not contain a verb:\n\n{text}")
+        trace_logger.detail(f"Not narrative. Text does not contain a verb:\n\n{text}")  # type: ignore # noqa: E501
         return False
 
     return True
@@ -81,6 +96,7 @@ def is_possible_title(
     title_max_word_length: int = 12,
     non_alpha_threshold: float = 0.5,
     language: str = "en",
+    language_checks: bool = False,
 ) -> bool:
     """Checks to see if the text passes all of the checks for a valid title.
 
@@ -96,13 +112,23 @@ def is_possible_title(
         The minimum number of alpha characters the text needs to be considered a title
     language
         The two letter language code for the text. defaults to "en" for English
+    language_checks
+        If True, conducts checks that are specific to the chosen language. Turn on for more
+        accurate partitioning and off for faster processing.
     """
+    _language_checks = os.environ.get("UNSTRUCTURED_LANGUAGE_CHECKS")
+    if _language_checks is not None:
+        language_checks = _language_checks.lower() == "true"
+
     if len(text) == 0:
-        logger.debug("Not a title. Text is empty.")
+        trace_logger.detail("Not a title. Text is empty.")  # type: ignore
+        return False
+
+    if text.isupper() and ENDS_IN_PUNCT_RE.search(text) is not None:
         return False
 
     title_max_word_length = int(
-        os.environ.get("UNSTRUCTURED_TITLE_MAX_WORD_LENGTH", title_max_word_length)
+        os.environ.get("UNSTRUCTURED_TITLE_MAX_WORD_LENGTH", title_max_word_length),
     )
     # NOTE(robinson) - splitting on spaces here instead of word tokenizing because it
     # is less expensive and actual tokenization doesn't add much value for the length check
@@ -110,7 +136,7 @@ def is_possible_title(
         return False
 
     non_alpha_threshold = float(
-        os.environ.get("UNSTRUCTURED_TITLE_NON_ALPHA_THRESHOLD", non_alpha_threshold)
+        os.environ.get("UNSTRUCTURED_TITLE_NON_ALPHA_THRESHOLD", non_alpha_threshold),
     )
     if under_non_alpha_ratio(text, threshold=non_alpha_threshold):
         return False
@@ -120,18 +146,20 @@ def is_possible_title(
         return False
 
     language = os.environ.get("UNSTRUCTURED_LANGUAGE", language)
-    if language == "en" and not contains_english_word(text):
+    if language == "en" and not contains_english_word(text) and language_checks:
         return False
 
     if text.isnumeric():
-        logger.debug(f"Not a title. Text is all numeric:\n\n{text}")
+        trace_logger.detail(f"Not a title. Text is all numeric:\n\n{text}")  # type: ignore
         return False
 
     # NOTE(robinson) - The min length is to capture content such as "ITEM 1A. RISK FACTORS"
     # that sometimes get tokenized as separate sentences due to the period, but are still
     # valid titles
     if sentence_count(text, min_length=sentence_min_length) > 1:
-        logger.debug(f"Not a title. Text is longer than {sentence_min_length} sentences:\n\n{text}")
+        trace_logger.detail(  # type: ignore
+            f"Not a title. Text is longer than {sentence_min_length} sentences:\n\n{text}",
+        )
         return False
 
     return True
@@ -159,10 +187,7 @@ def contains_verb(text: str) -> bool:
         text = text.lower()
 
     pos_tags = pos_tag(text)
-    for _, tag in pos_tags:
-        if tag in POS_VERB_TAGS:
-            return True
-    return False
+    return any(tag in POS_VERB_TAGS for _, tag in pos_tags)
 
 
 def contains_english_word(text: str) -> bool:
@@ -170,11 +195,16 @@ def contains_english_word(text: str) -> bool:
     text = text.lower()
     words = ENGLISH_WORD_SPLIT_RE.split(text)
     for word in words:
-        # NOTE(robinson) - to ignore punctuation at the ends of words like "best."
-        word = "".join([character for character in word if character.isalpha()])
+        # NOTE(Crag): Remove any non-lowercase alphabetical
+        # characters.  These removed chars will usually be trailing or
+        # leading characters not already matched in ENGLISH_WORD_SPLIT_RE.
+        # The possessive case is also generally ok:
+        #   "beggar's" -> "beggars" (still an english word)
+        # and of course:
+        #   "'beggars'"-> "beggars" (also still an english word)
+        word = NON_LOWERCASE_ALPHA_RE.sub("", word)
         if len(word) > 1 and word in ENGLISH_WORDS:
             return True
-
     return False
 
 
@@ -195,9 +225,9 @@ def sentence_count(text: str, min_length: Optional[int] = None) -> int:
         sentence = remove_punctuation(sentence)
         words = [word for word in word_tokenize(sentence) if word != "."]
         if min_length and len(words) < min_length:
-            logger.debug(
+            trace_logger.detail(  # type: ignore
                 f"Skipping sentence because does not exceed {min_length} word tokens\n"
-                f"{sentence}"
+                f"{sentence}",
             )
             continue
         count += 1
@@ -228,7 +258,7 @@ def under_non_alpha_ratio(text: str, threshold: float = 0.5):
 
 def exceeds_cap_ratio(text: str, threshold: float = 0.5) -> bool:
     """Checks the title ratio in a section of text. If a sufficient proportion of the words
-    are capitalized, that can be indiciated on non-narrative text (i.e. "1A. Risk Factors").
+    are capitalized, that can be indicated on non-narrative text (i.e. "1A. Risk Factors").
 
     Parameters
     ----------
@@ -241,15 +271,24 @@ def exceeds_cap_ratio(text: str, threshold: float = 0.5) -> bool:
     # NOTE(robinson) - Currently limiting this to only sections of text with one sentence.
     # The assumption is that sections with multiple sentences are not titles.
     if sentence_count(text, 3) > 1:
-        logger.debug(f"Text does not contain multiple sentences:\n\n{text}")
         return False
 
     if text.isupper():
-        return False
+        return True
 
-    tokens = word_tokenize(text)
+    # NOTE(jay-ylee) - The word_tokenize function also recognizes and separates special characters
+    # into one word, causing problems with ratio measurement.
+    # Therefore, only words consisting of alphabets are used to measure the ratio.
+    # ex. world_tokenize("ITEM 1. Financial Statements (Unaudited)")
+    #     = ['ITEM', '1', '.', 'Financial', 'Statements', '(', 'Unaudited', ')'],
+    # however, "ITEM 1. Financial Statements (Unaudited)" is Title, not NarrativeText
+    tokens = [tk for tk in word_tokenize(text) if tk.isalpha()]
+
+    # NOTE(jay-ylee) - If word_tokenize(text) is empty, return must be True to
+    # avoid being misclassified as Narrative Text.
     if len(tokens) == 0:
-        return False
+        return True
+
     capitalized = sum([word.istitle() or word.isupper() for word in tokens])
     ratio = capitalized / len(tokens)
     return ratio > threshold

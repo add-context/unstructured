@@ -1,5 +1,5 @@
-from typing import List
 import sys
+from typing import List
 
 if sys.version_info < (3, 8):
     from typing_extensions import Final
@@ -66,8 +66,12 @@ EMAIL_HEAD_PATTERN = (
 )
 EMAIL_HEAD_RE = re.compile(EMAIL_HEAD_PATTERN)
 
-# Helps split text by paragraphs
-PARAGRAPH_PATTERN = "\n\n\n|\n\n|\r\n|\r|\n"  # noqa: W605 NOTE(harrell)
+# Helps split text by paragraphs. There must be one newline, with potential whitespace
+# (incluing \r and \n chars) on either side
+PARAGRAPH_PATTERN = r"\s*\n\s*"  # noqa: W605 NOTE(harrell)
+
+PARAGRAPH_PATTERN_RE = re.compile(f"((?:{'|'.join(UNICODE_BULLETS)})|{PARAGRAPH_PATTERN})")
+DOUBLE_PARAGRAPH_PATTERN_RE = re.compile("(" + PARAGRAPH_PATTERN + "){2}")
 
 # IP Address examples: ba23::58b5:2236:45g2:88h2 or 10.0.2.01
 IP_ADDRESS_PATTERN = (
@@ -85,8 +89,19 @@ MAPI_ID_PATTERN = "[0-9]*\.[0-9]*\.[0-9]*\.[0-9]*;"  # noqa: W605 NOTE(harrell)
 # - skipping qa because we need the escape for the regex
 
 # Date, time, timezone example: Fri, 26 Mar 2021 11:04:09 +1200
-EMAIL_DATETIMETZ_PATTERN = "[a-zA-z]{3},\s[0-9]{2}\s[a-zA-Z]{3}\s[0-9]{4}\s[0-9]{2}:[0-9]{2}:[0-9]{2}\s[+0-9]{5}"  # noqa: W605,E501
 # NOTE(harrell) - skipping qa because we need the escape for the regex
+EMAIL_DATETIMETZ_PATTERN = (
+    r"[A-Za-z]{3},\s\d{1,2}\s[A-Za-z]{3}\s\d{4}\s\d{2}:\d{2}:\d{2}\s[+-]\d{4}"  # noqa: W605,E501
+)
+EMAIL_DATETIMETZ_PATTERN_RE = re.compile(EMAIL_DATETIMETZ_PATTERN)
 
 EMAIL_ADDRESS_PATTERN = "[a-z0-9\.\-+_]+@[a-z0-9\.\-+_]+\.[a-z]+"  # noqa: W605 NOTE(harrell)
 # - skipping qa because we need the escape for the regex
+
+
+ENDS_IN_PUNCT_PATTERN = r"[^\w\s]\Z"
+ENDS_IN_PUNCT_RE = re.compile(ENDS_IN_PUNCT_PATTERN)
+
+# NOTE(robinson) - Used to detect if text is in the expected "list of dicts"
+# format for document elements
+LIST_OF_DICTS_PATTERN = r"\A\s*\[\s*{?"

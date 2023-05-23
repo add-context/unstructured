@@ -1,10 +1,30 @@
+import re
+
 import pytest
 
-import unstructured.cleaners.core as core
+from unstructured.cleaners import core
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
+    [
+        (
+            "\x88This text contains non-ascii characters!\x88",
+            "This text contains non-ascii characters!",
+        ),
+        ("\x93A lovely quote!\x94", "A lovely quote!"),
+        ("● An excellent point! ●●●", " An excellent point! "),
+        ("Item\xa01A", "Item1A"),
+        ("Our dog&apos;s bowl.", "Our dog&apos;s bowl."),
+        ("5 w=E2=80=99s", "5 w=E2=80=99s"),
+    ],
+)
+def test_clean_non_ascii_chars(text, expected):
+    assert core.clean_non_ascii_chars(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
     [
         ("● An excellent point!", "An excellent point!"),
         ("● An excellent point! ●●●", "An excellent point! ●●●"),
@@ -18,7 +38,7 @@ def test_clean_bullets(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("1. Introduction:", "Introduction:"),
         ("a. Introduction:", "Introduction:"),
@@ -43,7 +63,7 @@ def test_clean_ordered_bullets(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("\x93A lovely quote!\x94", "“A lovely quote!”"),
         ("\x91A lovely quote!\x92", "‘A lovely quote!’"),
@@ -55,15 +75,20 @@ def test_replace_unicode_quotes(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [("5 w=E2=80=99s", "5 w’s")],
 )
 def test_replace_mime_encodings(text, expected):
     assert core.replace_mime_encodings(text=text) == expected
 
 
+def test_replace_mime_encodings_works_with_different_encodings():
+    text = "5 w=E2=80-99s=E2=80-92"
+    assert core.replace_mime_encodings(text=text, encoding="latin-1") == "5 wâ\x80-99sâ\x80-92"
+
+
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("“A lovely quote!”", "A lovely quote"),
         ("‘A lovely quote!’", "A lovely quote"),
@@ -75,7 +100,7 @@ def test_remove_punctuation(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("RISK\n\nFACTORS", "RISK FACTORS"),
         ("Item\xa01A", "Item 1A"),
@@ -89,7 +114,7 @@ def test_clean_extra_whitespace(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("Risk-factors", "Risk factors"),
         ("Risk – factors", "Risk   factors"),
@@ -103,7 +128,7 @@ def test_clean_dashes(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, expected",
+    ("text", "expected"),
     [
         ("Item 1A:", "Item 1A"),
         ("Item 1A;", "Item 1A"),
@@ -118,7 +143,7 @@ def test_clean_trailing_punctuation(text, expected):
 
 
 @pytest.mark.parametrize(
-    "text, pattern, ignore_case, strip, expected",
+    ("text", "pattern", "ignore_case", "strip", "expected"),
     [
         ("SUMMARY: A great SUMMARY", r"(SUMMARY|DESC):", False, True, "A great SUMMARY"),
         ("DESC: A great SUMMARY", r"(SUMMARY|DESC):", False, True, "A great SUMMARY"),
@@ -131,7 +156,7 @@ def test_clean_prefix(text, pattern, ignore_case, strip, expected):
 
 
 @pytest.mark.parametrize(
-    "text, pattern, ignore_case, strip, expected",
+    ("text", "pattern", "ignore_case", "strip", "expected"),
     [
         ("The END! END", r"(END|STOP)", False, True, "The END!"),
         ("The END! STOP", r"(END|STOP)", False, True, "The END!"),
@@ -143,9 +168,53 @@ def test_clean_postfix(text, pattern, ignore_case, strip, expected):
     assert core.clean_postfix(text, pattern, ignore_case, strip) == expected
 
 
+def test_group_broken_paragraphs():
+    text = """The big red fox
+is walking down the lane.
+
+At the end of the lane
+the fox met a friendly bear."""
+
+    assert (
+        core.group_broken_paragraphs(text)
+        == """The big red fox is walking down the lane.
+
+At the end of the lane the fox met a friendly bear."""
+    )
+
+
+def test_group_broken_paragraphs_non_default_settings():
+    text = """The big red fox
+
+is walking down the lane.
+
+
+At the end of the lane
+
+the fox met a friendly bear."""
+
+    para_split_re = re.compile(r"(\s*\n\s*){3}")
+
+    clean_text = core.group_broken_paragraphs(text, paragraph_split=para_split_re)
+    assert (
+        clean_text
+        == """The big red fox is walking down the lane.
+
+At the end of the lane the fox met a friendly bear."""
+    )
+
+
 @pytest.mark.parametrize(
     # NOTE(yuming): Tests combined cleaners
-    "text, extra_whitespace, dashes, bullets, lowercase, trailing_punctuation, expected",
+    (
+        "text",
+        "extra_whitespace",
+        "dashes",
+        "bullets",
+        "lowercase",
+        "trailing_punctuation",
+        "expected",
+    ),
     [
         ("  Risk-factors ", True, True, False, False, False, "Risk factors"),
         ("● Point!  ●●● ", True, False, True, False, False, "Point! ●●●"),
@@ -171,3 +240,8 @@ def test_clean(text, extra_whitespace, dashes, bullets, lowercase, trailing_punc
         )
         == expected
     )
+
+
+def test_bytes_string_to_string():
+    text = "\xe6\xaf\x8f\xe6\x97\xa5\xe6\x96\xb0\xe9\x97\xbb"
+    assert core.bytes_string_to_string(text, "utf-8") == "每日新闻"
